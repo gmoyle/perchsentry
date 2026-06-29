@@ -155,6 +155,12 @@ def gallery():
     return render_template("gallery.html")
 
 
+
+@app.route("/slowmo-page")
+def slowmo_page():
+    return render_template("slowmo.html")
+
+
 @app.route("/help")
 def help_page():
     return render_template("help.html")
