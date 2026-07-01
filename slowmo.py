@@ -77,12 +77,12 @@ class SlowMoCapture:
     def is_active(self):
         return self._active
 
-    def capture(self, species):
+    def capture(self, species, confidence=None):
         if self._active:
             return
-        threading.Thread(target=self._run, args=(species,), daemon=True).start()
+        threading.Thread(target=self._run, args=(species, confidence), daemon=True).start()
 
-    def _run(self, species):
+    def _run(self, species, confidence=None):
         global _capturing
         with self._lock:
             self._active = True
@@ -90,6 +90,7 @@ class SlowMoCapture:
             ts = datetime.now().strftime("%Y%m%d_%H%M%S")
             h264_path = SLOWMO_DIR / f"raw_{ts}.h264"
             output_path = SLOWMO_DIR / f"slowmo_{ts}.mp4"
+            meta_path = SLOWMO_DIR / f"slowmo_{ts}.json"
 
             log.info(f"Slow-mo burst started for {species} ({CAPTURE_SECS}s @ {CAPTURE_FPS}fps)")
 
@@ -130,6 +131,17 @@ class SlowMoCapture:
                             f"Slow-mo saved: {output_path.name} "
                             f"({CAPTURE_FPS/PLAYBACK_FPS:.1f}x slowdown)"
                         )
+                        try:
+                            import json as _json
+                            meta_path.write_text(_json.dumps({
+                                "trigger_species": species,
+                                "trigger_confidence": (round(float(confidence), 4)
+                                                       if confidence is not None else None),
+                                "trigger_is_hummingbird": is_hummingbird(species),
+                                "created_at": datetime.now().isoformat(timespec="seconds"),
+                            }))
+                        except Exception as _e:
+                            log.warning(f"Slow-mo sidecar write failed: {_e}")
                     h264_path.unlink(missing_ok=True)
 
                 except Exception as e:

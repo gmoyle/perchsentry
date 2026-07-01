@@ -341,13 +341,16 @@
       ev.target.closest('.clip-card').remove();
     }
 
-    // Load slow-mo clips
+    // Load slow-mo clips — show only the most recent few; full filtering lives
+    // on the dedicated Slow-Mo page so the gallery doesn't flood.
+    const SLOWMO_PREVIEW = 8;
     fetch('/slowmo').then(r => r.json()).then(videos => {
       if (!videos.length) return;
       const section = document.getElementById('slowmoSection');
       const list = document.getElementById('slowmoList');
       section.style.display = '';
-      list.innerHTML = videos.map(v => `
+      const recent = videos.slice(0, SLOWMO_PREVIEW);
+      list.innerHTML = recent.map(v => `
         <div class="clip-card" style="position:relative">
           <button class="card-delete" title="Delete" onclick="deleteSlowmoClip(event, '${v.filename}')">🗑</button>
           <a href="/slowmo/${v.filename}" target="_blank"
@@ -356,7 +359,11 @@
             <span style="color:#555">${v.size_mb}MB</span>
           </a>
         </div>
-      `).join('');
+      `).join('') + `
+        <a href="/slowmo-page"
+           style="display:flex;align-items:center;gap:8px;background:none;border-radius:6px;padding:8px 14px;text-decoration:none;color:#4caf50;font-size:0.8rem;border:1px solid #4caf50">
+          View all ${videos.length} →
+        </a>`;
     });
 
     // Initial load

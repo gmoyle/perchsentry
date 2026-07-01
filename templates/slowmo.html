@@ -9,166 +9,263 @@
     body { background: #1a1a1a; color: #e0e0e0; font-family: system-ui, sans-serif; }
 
     header {
-      background: #111;
-      padding: 10px 20px;
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      border-bottom: 1px solid #333;
-      position: sticky;
-      top: 0;
-      z-index: 10;
+      background: #111; padding: 10px 20px; display: flex; align-items: center;
+      gap: 12px; border-bottom: 1px solid #333; position: sticky; top: 0; z-index: 10;
     }
     header h1 { font-size: 1.1rem; font-weight: 600; flex: 1; }
     .back-btn {
-      background: none;
-      border: 1px solid #444;
-      color: #aaa;
-      border-radius: 5px;
-      padding: 4px 10px;
-      font-size: 0.8rem;
-      cursor: pointer;
-      text-decoration: none;
+      background: none; border: 1px solid #444; color: #aaa; border-radius: 5px;
+      padding: 4px 10px; font-size: 0.8rem; cursor: pointer; text-decoration: none;
       transition: border-color 0.15s, color 0.15s;
     }
     .back-btn:hover { border-color: #aaa; color: #fff; }
 
-    .empty {
-      text-align: center;
-      padding: 80px 20px;
-      color: #555;
-      font-size: 0.95rem;
+    .toolbar {
+      display: flex; flex-wrap: wrap; gap: 10px; align-items: center;
+      padding: 12px 20px; border-bottom: 1px solid #2a2a2a; font-size: 0.8rem;
     }
+    .toolbar label { color: #888; }
+    .toolbar select, .toolbar input[type=date] {
+      background: #222; color: #e0e0e0; border: 1px solid #444;
+      border-radius: 5px; padding: 4px 8px; font-size: 0.8rem;
+    }
+    .chip {
+      padding: 5px 12px; border-radius: 20px; border: 1px solid #444;
+      background: none; color: #aaa; font-size: 0.8rem; cursor: pointer; transition: all 0.15s;
+    }
+    .chip.active { background: #4caf50; border-color: #4caf50; color: #fff; }
+    .chip:hover:not(.active) { border-color: #aaa; color: #fff; }
+    .spacer { flex: 1; }
+    .verify-btn {
+      padding: 5px 12px; border-radius: 5px; border: 1px solid #b58900;
+      background: none; color: #d4a017; font-size: 0.8rem; cursor: pointer;
+    }
+    .verify-btn:hover { background: #b58900; color: #fff; }
+
+    .empty { text-align: center; padding: 80px 20px; color: #555; font-size: 0.95rem; }
 
     .grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-      gap: 16px;
-      padding: 20px;
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 16px; padding: 20px;
     }
-
     .card {
-      position: relative;
-      background: #222;
-      border-radius: 10px;
-      overflow: hidden;
-      border: 1px solid #333;
-      transition: border-color 0.15s;
+      position: relative; background: #222; border-radius: 10px; overflow: hidden;
+      border: 1px solid #333; transition: border-color 0.15s;
     }
     .card:hover { border-color: #4caf50; }
+    .card.rejected { border-color: #5a3a3a; }
+    .card video { width: 100%; aspect-ratio: 16/9; background: #111; display: block; }
 
     .card-delete {
-      position: absolute;
-      top: 10px;
-      right: 10px;
-      width: 28px;
-      height: 28px;
-      border-radius: 50%;
-      background: rgba(198,40,40,0.9);
-      border: none;
-      color: #fff;
-      font-size: 0.9rem;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      opacity: 0;
-      transition: opacity 0.15s, background 0.15s;
-      z-index: 5;
+      position: absolute; top: 10px; right: 10px; width: 28px; height: 28px;
+      border-radius: 50%; background: rgba(198,40,40,0.9); border: none; color: #fff;
+      font-size: 0.9rem; cursor: pointer; display: flex; align-items: center;
+      justify-content: center; opacity: 0; transition: opacity 0.15s, background 0.15s; z-index: 5;
     }
     .card:hover .card-delete { opacity: 1; }
     .card-delete:hover { background: #d32f2f; }
+    .card-restore {
+      position: absolute; top: 10px; right: 46px; width: 28px; height: 28px;
+      border-radius: 50%; background: rgba(46,125,50,0.9); border: none; color: #fff;
+      font-size: 0.9rem; cursor: pointer; display: flex; align-items: center;
+      justify-content: center; opacity: 0; transition: opacity 0.15s; z-index: 5;
+    }
+    .card:hover .card-restore { opacity: 1; }
+    .card-restore:hover { background: #388e3c; }
 
-    .card video {
-      width: 100%;
-      aspect-ratio: 16/9;
-      background: #111;
-      display: block;
+    .card-info { padding: 10px 14px; display: flex; align-items: center; justify-content: space-between; }
+    .card-info .label { font-size: 0.8rem; color: #4caf50; font-weight: 600; }
+    .card-info .label.unverified { color: #999; }
+    .card-info .meta { font-size: 0.72rem; color: #666; }
+    .badge {
+      display: inline-block; font-size: 0.6rem; padding: 1px 6px; border-radius: 10px;
+      margin-left: 6px; vertical-align: middle;
     }
-
-    .card-info {
-      padding: 10px 14px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-    }
-    .card-info .label {
-      font-size: 0.8rem;
-      color: #4caf50;
-      font-weight: 600;
-    }
-    .card-info .meta {
-      font-size: 0.72rem;
-      color: #666;
-    }
+    .badge.hb { background: #2e7d32; color: #fff; }
+    .badge.rej { background: #5a3a3a; color: #f0c0c0; }
     .card-info a {
-      font-size: 0.72rem;
-      color: #555;
-      text-decoration: none;
-      border: 1px solid #444;
-      border-radius: 4px;
-      padding: 3px 8px;
-      transition: all 0.15s;
+      font-size: 0.72rem; color: #555; text-decoration: none; border: 1px solid #444;
+      border-radius: 4px; padding: 3px 8px; transition: all 0.15s;
     }
     .card-info a:hover { color: #fff; border-color: #aaa; }
+
+    .load-more {
+      display: block; margin: 20px auto 40px; padding: 10px 32px; background: none;
+      border: 1px solid #444; color: #aaa; border-radius: 6px; font-size: 0.85rem; cursor: pointer;
+    }
+    .load-more:hover { border-color: #aaa; color: #fff; }
+    .load-more:disabled { opacity: 0.3; cursor: default; }
   </style>
 </head>
 <body>
   <header>
     <a href="/" class="back-btn">← Live</a>
-    <h1>Hummingbird Slow-Mo</h1>
+    <a href="/gallery" class="back-btn">🖼 Gallery</a>
+    <h1>Slow-Mo</h1>
     <span id="count" style="font-size:0.75rem;color:#555"></span>
   </header>
 
+  <div class="toolbar">
+    <button class="chip active" id="chip-kept" onclick="setView('kept')">Kept</button>
+    <button class="chip" id="chip-rejected" onclick="setView('rejected')">Rejected</button>
+    <button class="chip" id="chip-hb" onclick="toggleHb()">🐦 Hummingbird only</button>
+    <span class="spacer"></span>
+    <label>Sort
+      <select id="sortSel" onchange="applyAndRender()">
+        <option value="newest">Newest</option>
+        <option value="oldest">Oldest</option>
+        <option value="largest">Largest</option>
+        <option value="smallest">Smallest</option>
+      </select>
+    </label>
+    <label>From <input type="date" id="fromDate" onchange="applyAndRender()"></label>
+    <label>To <input type="date" id="toDate" onchange="applyAndRender()"></label>
+    <button class="chip" onclick="clearDates()">Clear dates</button>
+    <button class="verify-btn" id="verifyBtn" onclick="runVerify()">Verify now</button>
+  </div>
+
   <div id="content"></div>
+  <button class="load-more" id="loadMore" style="display:none" onclick="showMore()">Load more</button>
 
   <script>
+    let view = 'kept';          // 'kept' | 'rejected'
+    let hbOnly = false;
+    let raw = [];               // all items for current view
+    let filtered = [];
+    let shown = 0;
+    const PAGE = 48;
+    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
     function formatTs(ts) {
-      // "20260629_113538" → "Jun 29 11:35:38"
-      const y = ts.slice(0,4), mo = ts.slice(4,6), d = ts.slice(6,8);
+      const mo = ts.slice(4,6), d = ts.slice(6,8);
       const h = ts.slice(9,11), mi = ts.slice(11,13), s = ts.slice(13,15);
-      const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
       return `${months[parseInt(mo)-1]} ${parseInt(d)}, ${h}:${mi}:${s}`;
     }
+    function tsDate(ts) { return ts.slice(0,4)+'-'+ts.slice(4,6)+'-'+ts.slice(6,8); }
 
-    async function deleteSlowmo(filename) {
-      if (!confirm('Delete this slow-mo video? This cannot be undone.')) return;
-      const res = await fetch(`/api/slowmo/${filename}`, { method: 'DELETE' });
-      if (!res.ok) { alert('Delete failed'); return; }
-      const card = document.getElementById(`card-${filename}`);
-      if (card) card.remove();
-      const countEl = document.getElementById('count');
-      const remaining = document.querySelectorAll('.card').length;
-      countEl.textContent = `${remaining} video${remaining !== 1 ? 's' : ''}`;
-      if (remaining === 0) {
-        document.getElementById('content').innerHTML = '<div class="empty">No slow-mo videos yet.<br>They\'re captured automatically when a hummingbird is detected.</div>';
+    function setView(v) {
+      view = v;
+      document.getElementById('chip-kept').classList.toggle('active', v==='kept');
+      document.getElementById('chip-rejected').classList.toggle('active', v==='rejected');
+      load();
+    }
+    function toggleHb() {
+      hbOnly = !hbOnly;
+      document.getElementById('chip-hb').classList.toggle('active', hbOnly);
+      applyAndRender();
+    }
+    function clearDates() {
+      document.getElementById('fromDate').value = '';
+      document.getElementById('toDate').value = '';
+      applyAndRender();
+    }
+
+    async function load() {
+      const url = view === 'kept' ? '/slowmo' : '/api/slowmo-rejected';
+      const res = await fetch(url);
+      raw = await res.json();
+      applyAndRender();
+    }
+
+    function applyAndRender() {
+      const from = document.getElementById('fromDate').value;
+      const to = document.getElementById('toDate').value;
+      const sort = document.getElementById('sortSel').value;
+
+      filtered = raw.filter(v => {
+        if (hbOnly) {
+          // treat as hummingbird if trigger flagged it OR a verified/best species is a hummingbird
+          const hb = v.is_hummingbird === true || v.verified === true;
+          if (!hb) return false;
+        }
+        const d = tsDate(v.timestamp);
+        if (from && d < from) return false;
+        if (to && d > to) return false;
+        return true;
+      });
+
+      filtered.sort((a,b) => {
+        if (sort === 'newest') return b.timestamp.localeCompare(a.timestamp);
+        if (sort === 'oldest') return a.timestamp.localeCompare(b.timestamp);
+        if (sort === 'largest') return b.size_bytes - a.size_bytes;
+        if (sort === 'smallest') return a.size_bytes - b.size_bytes;
+        return 0;
+      });
+
+      shown = 0;
+      document.getElementById('content').innerHTML = '<div class="grid" id="grid"></div>';
+      showMore();
+      const totalMb = raw.reduce((s,v)=>s+(v.size_bytes||0),0)/1048576;
+      document.getElementById('count').textContent =
+        `${filtered.length} of ${raw.length} · ${totalMb.toFixed(0)} MB total`;
+      if (!filtered.length) {
+        document.getElementById('content').innerHTML =
+          '<div class="empty">No videos match.</div>';
+        document.getElementById('loadMore').style.display = 'none';
       }
     }
 
-    fetch('/slowmo').then(r => r.json()).then(videos => {
-      const content = document.getElementById('content');
-      if (!videos.length) {
-        content.innerHTML = '<div class="empty">No slow-mo videos yet.<br>They\'re captured automatically when a hummingbird is detected.</div>';
-        return;
-      }
-      document.getElementById('count').textContent = `${videos.length} video${videos.length !== 1 ? 's' : ''}`;
-      content.innerHTML = `<div class="grid">${videos.map(v => `
-        <div class="card" id="card-${v.filename}">
-          <button class="card-delete" title="Delete" onclick="deleteSlowmo('${v.filename}')">🗑</button>
-          <video src="/slowmo/${v.filename}" controls preload="metadata" playsinline></video>
+    function cardHtml(v) {
+      const rej = view === 'rejected';
+      const src = rej ? `/slowmo/rejected/${v.filename}` : `/slowmo/${v.filename}`;
+      const sp = v.species ? v.species.split(' ').slice(-2).join(' ') : (rej ? 'No hummingbird' : 'Unverified');
+      const conf = (v.confidence != null) ? ` ${(v.confidence*100).toFixed(0)}%` : '';
+      const hbBadge = v.is_hummingbird ? '<span class="badge hb">🐦</span>' : '';
+      const labelCls = (v.verified === true) ? 'label' : 'label unverified';
+      const restoreBtn = rej ? `<button class="card-restore" title="Restore" onclick="restore('${v.filename}')">♻</button>` : '';
+      const delUrl = rej ? `/api/slowmo-rejected/${v.filename}` : `/api/slowmo/${v.filename}`;
+      return `
+        <div class="card ${rej?'rejected':''}" id="card-${v.filename}">
+          ${restoreBtn}
+          <button class="card-delete" title="Delete" onclick="del('${v.filename}','${delUrl}')">🗑</button>
+          <video src="${src}" controls preload="none" playsinline></video>
           <div class="card-info">
             <div>
-              <div class="label">🐦 Hummingbird</div>
+              <div class="${labelCls}">${sp}${conf}${hbBadge}${rej?'<span class="badge rej">quarantined</span>':''}</div>
               <div class="meta">${formatTs(v.timestamp)}</div>
             </div>
             <div style="text-align:right">
               <div class="meta" style="margin-bottom:4px">${v.size_mb} MB</div>
-              <a href="/slowmo/${v.filename}" download>⬇ Download</a>
+              <a href="${src}" download>⬇</a>
             </div>
           </div>
-        </div>
-      `).join('')}</div>`;
-    });
+        </div>`;
+    }
+
+    function showMore() {
+      const grid = document.getElementById('grid');
+      if (!grid) return;
+      const next = filtered.slice(shown, shown + PAGE);
+      grid.insertAdjacentHTML('beforeend', next.map(cardHtml).join(''));
+      shown += next.length;
+      const btn = document.getElementById('loadMore');
+      btn.style.display = shown < filtered.length ? 'block' : 'none';
+    }
+
+    async function del(filename, url) {
+      if (!confirm('Delete this video? This cannot be undone.')) return;
+      const res = await fetch(url, { method: 'DELETE' });
+      if (!res.ok) { alert('Delete failed'); return; }
+      raw = raw.filter(v => v.filename !== filename);
+      applyAndRender();
+    }
+    async function restore(filename) {
+      const res = await fetch(`/api/slowmo/restore/${filename}`, { method: 'POST' });
+      if (!res.ok) { alert('Restore failed'); return; }
+      raw = raw.filter(v => v.filename !== filename);
+      applyAndRender();
+    }
+    async function runVerify() {
+      const btn = document.getElementById('verifyBtn');
+      btn.textContent = 'Verifying…'; btn.disabled = true;
+      try {
+        await fetch('/api/slowmo/verify', { method: 'POST' });
+        btn.textContent = 'Started — refresh in a bit';
+      } catch(e) { btn.textContent = 'Failed'; }
+      setTimeout(() => { btn.textContent = 'Verify now'; btn.disabled = false; }, 4000);
+    }
+
+    load();
   </script>
 </body>
 </html>

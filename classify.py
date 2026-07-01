@@ -14,8 +14,11 @@ def load_labels():
         return {int(row["id"]): row["name"] for row in reader}
 
 
-def load_interpreter():
-    interp = Interpreter(model_path=str(MODEL_PATH))
+def load_interpreter(num_threads=None):
+    kwargs = {}
+    if num_threads:
+        kwargs["num_threads"] = num_threads
+    interp = Interpreter(model_path=str(MODEL_PATH), **kwargs)
     interp.allocate_tensors()
     return interp
 

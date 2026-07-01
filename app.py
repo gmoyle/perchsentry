@@ -17,6 +17,7 @@ from slowmo import SLOWMO_DIR, is_capturing
 from cleanup import DiskCleaner, disk_usage
 from daynight import DayNightManager
 from backup import BackupScheduler, run_backup
+from verify_slowmo import SlowMoVerifier
 
 logging.basicConfig(
     level=logging.INFO,
@@ -38,6 +39,60 @@ def _track_client_activity():
     from flask import request as _rq
     if _rq.path not in _ACTIVITY_EXCLUDE:
         _last_request_at = _time.time()
+
+
+# ── Maintenance mode ────────────────────────────────────────────────────────
+# While a heavy nightly job runs, lock the UI so no browser traffic competes
+# with it. Auto-expires as a safety net so a crash can't leave the site locked.
+_maintenance = {"active": False, "since": 0.0, "reason": ""}
+MAINT_MAX_SECS = 3 * 3600
+
+
+def set_maintenance(active, reason=""):
+    _maintenance["active"] = bool(active)
+    _maintenance["since"] = _time.time() if active else 0.0
+    _maintenance["reason"] = reason if active else ""
+    log.info("Maintenance mode " + ("ON: " + reason if active else "OFF"))
+
+
+def _maintenance_active():
+    if not _maintenance["active"]:
+        return False
+    if _time.time() - _maintenance["since"] > MAINT_MAX_SECS:
+        _maintenance["active"] = False
+        return False
+    return True
+
+
+@app.route("/api/maintenance")
+def api_maintenance():
+    return jsonify({
+        "active": _maintenance_active(),
+        "since": _maintenance["since"],
+        "reason": _maintenance["reason"],
+    })
+
+
+@app.before_request
+def _maintenance_gate():
+    from flask import request as _rq
+    if _rq.path == "/api/maintenance":
+        return  # status is always reachable
+    if not _maintenance_active():
+        return
+    if _rq.path.startswith("/api/") or _rq.path.startswith("/stream"):
+        return jsonify({"maintenance": True, "reason": _maintenance["reason"]}), 503
+    html = (
+        "<html><head><meta charset='utf-8'><meta http-equiv='refresh' content='30'>"
+        "<title>BirdBuddy — Maintenance</title></head>"
+        "<body style='background:#1a1a1a;color:#ccc;font-family:system-ui;"
+        "text-align:center;padding:80px 20px'>"
+        "<h2>&#128736; BirdBuddy is doing nightly maintenance</h2>"
+        "<p>" + (_maintenance["reason"] or "") + "</p>"
+        "<p style='color:#666'>The live view and gallery will be back shortly.</p>"
+        "</body></html>"
+    )
+    return Response(html, status=503, mimetype="text/html")
 
 Path("logs").mkdir(exist_ok=True)
 log.info("BirdBuddy starting")
@@ -70,6 +125,7 @@ _timelapse = TimelapseCapturer(_camera, lambda: _settings)
 _cleaner = DiskCleaner(lambda: _settings)
 _daynight = DayNightManager(_camera, lambda: _settings)
 _backup = BackupScheduler(lambda: _settings)
+_slowmo_verifier = SlowMoVerifier(lambda: _settings, clients_active=clients_active, set_maintenance=set_maintenance)
 _camera.start()
 _camera.apply_settings(_settings)
 if _camera1.available:
@@ -79,6 +135,7 @@ _timelapse.start()
 _cleaner.start()
 _daynight.start()
 _backup.start()
+_slowmo_verifier.start()
 log.info("Camera ready — http://birdbuddy.local:8080/")
 
 
@@ -363,14 +420,96 @@ def api_backup():
     return jsonify({"ok": ok, "message": msg})
 
 
+def _slowmo_entry(v):
+    meta = {}
+    sc = v.with_suffix(".json")
+    if sc.exists():
+        try:
+            meta = json.loads(sc.read_text())
+        except Exception:
+            meta = {}
+    size = v.stat().st_size
+    species = meta.get("best_species") or meta.get("trigger_species")
+    conf = meta.get("best_confidence")
+    if conf is None:
+        conf = meta.get("trigger_confidence")
+    return {
+        "filename": v.name,
+        "timestamp": v.stem.replace("slowmo_", ""),
+        "size_mb": round(size / 1024 / 1024, 1),
+        "size_bytes": size,
+        "species": species,
+        "confidence": conf,
+        "is_hummingbird": meta.get("trigger_is_hummingbird"),
+        "verified": meta.get("verified"),
+    }
+
+
 @app.route("/slowmo")
 def slowmo_list():
     videos = sorted(SLOWMO_DIR.glob("slowmo_*.mp4"), reverse=True)
-    return jsonify([{
-        "filename": v.name,
-        "timestamp": v.stem.replace("slowmo_", ""),
-        "size_mb": round(v.stat().st_size / 1024 / 1024, 1),
-    } for v in videos])
+    return jsonify([_slowmo_entry(v) for v in videos])
+
+
+@app.route("/api/slowmo-rejected")
+def slowmo_rejected_list():
+    rej = SLOWMO_DIR / "rejected"
+    if not rej.exists():
+        return jsonify([])
+    videos = sorted(rej.glob("slowmo_*.mp4"), reverse=True)
+    return jsonify([_slowmo_entry(v) for v in videos])
+
+
+@app.route("/slowmo/rejected/<filename>")
+def slowmo_rejected_video(filename):
+    if "/" in filename or "\\" in filename or ".." in filename or not filename.endswith(".mp4"):
+        abort(400)
+    path = SLOWMO_DIR / "rejected" / filename
+    if not path.exists():
+        abort(404)
+    return send_file(path, mimetype="video/mp4")
+
+
+@app.route("/api/slowmo-rejected/<filename>", methods=["DELETE"])
+def delete_slowmo_rejected(filename):
+    if "/" in filename or "\\" in filename or ".." in filename or not filename.endswith(".mp4"):
+        abort(400)
+    path = SLOWMO_DIR / "rejected" / filename
+    if not path.exists():
+        abort(404)
+    path.unlink()
+    path.with_suffix(".json").unlink(missing_ok=True)
+    log.info(f"Deleted quarantined slow-mo: {filename}")
+    return jsonify({"ok": True})
+
+
+@app.route("/api/slowmo/restore/<filename>", methods=["POST"])
+def slowmo_restore(filename):
+    if "/" in filename or "\\" in filename or ".." in filename or not filename.endswith(".mp4"):
+        abort(400)
+    src = SLOWMO_DIR / "rejected" / filename
+    if not src.exists():
+        abort(404)
+    src.rename(SLOWMO_DIR / filename)
+    sc = src.with_suffix(".json")
+    if sc.exists():
+        try:
+            m = json.loads(sc.read_text())
+        except Exception:
+            m = {}
+        m["verified"] = True  # so the verifier won't re-quarantine it
+        m["restored_at"] = datetime.now().isoformat(timespec="seconds")
+        (SLOWMO_DIR / sc.name).write_text(json.dumps(m))
+        sc.unlink(missing_ok=True)
+    log.info(f"Restored slow-mo from quarantine: {filename}")
+    return jsonify({"ok": True})
+
+
+@app.route("/api/slowmo/verify", methods=["POST"])
+def slowmo_verify_now():
+    import threading as _t
+    _t.Thread(target=lambda: _slowmo_verifier.run_pass(force=True), daemon=True).start()
+    return jsonify({"ok": True, "message": "Verification pass started in background"})
 
 
 @app.route("/slowmo/<filename>")

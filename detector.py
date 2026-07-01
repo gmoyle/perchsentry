@@ -203,7 +203,7 @@ class MotionDetector:
                                 log.info("Bird detected — skipping slow-mo (someone is viewing the site)")
                             else:
                                 log.info("Bird detected! Triggering slow-mo capture")
-                                self._slowmo.capture(species)
+                                self._slowmo.capture(species, confidence)
                         threading.Thread(
                             target=notify,
                             args=(species, confidence, s),
