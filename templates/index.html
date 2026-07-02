@@ -361,6 +361,24 @@
     }
     .sighting-card .meta { font-size: 0.65rem; color: #888; margin-top: 2px; }
 
+    .sightings-clear {
+      flex-shrink: 0;
+      width: 72px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      background: none;
+      border: 1px dashed #444;
+      border-radius: 8px;
+      color: #777;
+      font-size: 0.7rem;
+      cursor: pointer;
+      text-align: center;
+    }
+    .sightings-clear:hover { border-color: #d32f2f; color: #d32f2f; }
+
     .sightings-empty {
       color: #555;
       font-size: 0.85rem;
@@ -800,7 +818,7 @@
           inner.innerHTML = '<div class="sightings-empty">No bird sightings yet.</div>';
           return;
         }
-        inner.innerHTML = data.map(s => `
+        inner.innerHTML = `<div class="sightings-clear" onclick="clearSightings()" title="Delete ALL sightings and their images">🗑<span>Clear all</span></div>` + data.map(s => `
           <div class="sighting-card" id="sighting-${s.filename}" onclick="openLightbox('/captures/${s.filename}', '${s.species}', '${s.timestamp}', ${s.confidence})">
             <button class="card-delete" title="Delete" onclick="event.stopPropagation(); deleteSighting('${s.filename}')">🗑</button>
             <img src="${s.has_image ? '/captures/' + s.filename : ''}" alt="${s.species}" loading="lazy">
@@ -811,6 +829,22 @@
           </div>
         `).join('');
       });
+    }
+
+    async function clearSightings() {
+      if (!confirm('Delete ALL sightings and their images? This cannot be undone.')) return;
+      const res = await fetch('/api/sightings/clear', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}',
+      });
+      if (!res.ok) { alert('Clear failed'); return; }
+      const d = await res.json();
+      loadSightings();
+      const t = document.getElementById('toast');
+      t.textContent = `Removed ${d.removed} sightings`;
+      t.classList.add('show');
+      setTimeout(() => { t.classList.remove('show'); t.textContent = 'Settings applied'; }, 2500);
     }
 
     async function deleteSighting(filename) {

@@ -298,6 +298,39 @@ def api_visits():
     return jsonify(list(reversed(_compute_visits()))[:100])
 
 
+@app.route("/api/sightings/clear", methods=["POST"])
+def sightings_clear():
+    """Bulk-delete sightings (and their images). Optional JSON body
+    {"before": "YYYY-MM-DD HH:MM:SS"} limits it to older entries."""
+    data = request.get_json(silent=True) or {}
+    cutoff = None
+    if data.get("before"):
+        try:
+            cutoff = datetime.strptime(data["before"], "%Y-%m-%d %H:%M:%S")
+        except ValueError:
+            return jsonify({"ok": False, "error": "bad 'before' format"}), 400
+    removed = 0
+    with _deleted_lock:
+        s = _load_deleted()
+        for e in _get_log_entries():
+            if e["filename"] in s:
+                continue
+            if cutoff is not None and e["dt"] >= cutoff:
+                continue
+            (CAPTURES_DIR / e["filename"]).unlink(missing_ok=True)
+            (THUMBS_DIR / e["filename"]).unlink(missing_ok=True)
+            s.add(e["filename"])
+            removed += 1
+        try:
+            with open(DELETED_FILE, "w") as f:
+                json.dump(sorted(s), f)
+        except Exception as exc:
+            log.warning(f"Failed to save deleted set: {exc}")
+    log.info(f"Bulk-cleared {removed} sightings"
+             + (f" before {data['before']}" if cutoff else ""))
+    return jsonify({"ok": True, "removed": removed})
+
+
 @app.route("/sightings")
 def sightings():
     deleted = _load_deleted()
@@ -345,9 +378,7 @@ def delete_capture(filename):
     if "/" in filename or "\\" in filename or ".." in filename or not filename.endswith(".jpg"):
         abort(400)
     path = CAPTURES_DIR / filename
-    if not path.exists():
-        abort(404)
-    path.unlink()
+    path.unlink(missing_ok=True)
     (THUMBS_DIR / filename).unlink(missing_ok=True)
     _add_deleted(filename)
     log.info(f"Deleted capture: {filename}")
