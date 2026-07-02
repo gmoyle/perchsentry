@@ -3,10 +3,15 @@ Nightly slow-mo verifier.
 
 Slow-mo bursts fire on any bird detection, so the folder fills with false
 triggers (wind, chains, low-confidence misclassifications). This samples a few
-frames from each video, runs the TFLite species classifier (the Hailo NPU path
-is currently non-functional), and quarantines any video where no confident
-bird of any species appears — moving it to slowmo/rejected/ rather than deleting, so
-nothing is lost.
+frames from each video and keeps the clip if the NPU finds an animal bounding
+box in any sampled frame (falling back to the TFLite species classifier when
+the NPU isn't available). Rejects are quarantined to slowmo/rejected/ — moved,
+not deleted, so nothing is lost.
+
+For kept clips it also:
+- picks the best frame (largest, highest-scoring bird box) and saves it as a
+  poster JPEG next to the video for gallery thumbnails, and
+- labels the species by classifying a bird-centered crop of that frame.
 
 Deliberately gentle: single-threaded TFLite + ffmpeg and a throttle between
 videos, so it doesn't spike all cores (this board has hard-hung under sustained
@@ -14,7 +19,7 @@ load). Runs only after midnight, and puts the site into maintenance mode for
 the duration so no browser traffic competes with it.
 """
 import json
-import time
+import shutil
 import logging
 import subprocess
 import threading
@@ -23,6 +28,8 @@ from datetime import datetime
 
 from classify import load_interpreter, load_labels, classify_image
 from slowmo import SLOWMO_DIR
+from objdetect import analyze_frame
+from detector import crop_to_box
 
 REJECTED_DIR = SLOWMO_DIR / "rejected"
 log = logging.getLogger("birdbuddy")
@@ -33,6 +40,10 @@ SAMPLE_FRACTIONS = [0.02, 0.25, 0.5, 0.75, 0.98]
 
 def sidecar_path(video):
     return video.with_suffix(".json")
+
+
+def poster_path(video):
+    return video.with_name(video.stem + "_poster.jpg")
 
 
 def load_meta(video):
@@ -76,33 +87,87 @@ def _extract_frame(video, t, out):
         return False
 
 
+def _box_area(box):
+    if not box:
+        return 0.0
+    x1, y1, x2, y2 = box
+    return max(0.0, x2 - x1) * max(0.0, y2 - y1)
+
+
 def verify_video(video, interp, labels, min_conf):
-    """Return (bird_found, best_result_dict). Keeps any confident bird."""
+    """Sample frames and judge the clip.
+
+    Returns (bird_found, best) where best = {species, confidence, det_label,
+    det_score, frame_time}. When a bird is found, the best sampled frame is
+    saved as a poster JPEG next to the video.
+    """
     dur = _video_duration(video)
-    best = {"species": None, "confidence": 0.0}
+    best = {"species": None, "confidence": 0.0, "det_label": None,
+            "det_score": 0.0, "frame_time": None}
+    best_rank = -1.0
     tmp = SLOWMO_DIR / ("_verify_" + video.stem + ".jpg")
+    best_tmp = SLOWMO_DIR / ("_verify_best_" + video.stem + ".jpg")
     found = False
     try:
         for frac in SAMPLE_FRACTIONS:
             t = max(0.0, dur * frac)
             if not _extract_frame(video, t, tmp):
                 continue
+
+            det = analyze_frame(tmp)
+
+            # Species: classify a bird-centered crop when we have a box —
+            # far more reliable than classifying the whole frame.
+            r = None
+            classify_src = tmp
+            crop = crop_to_box(tmp, det["box"]) if det.get("box") else None
+            if crop:
+                classify_src = crop
             try:
-                r = classify_image(tmp, interp, labels)
+                r = classify_image(classify_src, interp, labels)
             except Exception:
                 r = None
-            if r and r.get("species"):
-                if r["confidence"] > best["confidence"]:
-                    best = {"species": r["species"], "confidence": r["confidence"]}
-                # Keep on ANY confident bird, not just hummingbirds — species
-                # IDs on motion-blurred slow-mo frames are unreliable, and a
-                # misidentified bird is still a bird. Only true non-bird
-                # (background) clips should be culled.
-                if r.get("is_bird") and r["confidence"] >= min_conf:
-                    found = True
-                    break
+            finally:
+                if crop:
+                    crop.unlink(missing_ok=True)
+
+            frame_found = False
+            if det["supported"]:
+                # NPU verdict: an animal box in frame keeps the clip.
+                frame_found = det["has_animal"] and det.get("box") is not None
+            elif r and r.get("is_bird") and r["confidence"] >= min_conf:
+                # Fallback (no NPU): confident bird from the classifier.
+                frame_found = True
+
+            # Rank frames: prefer bird boxes, larger + higher-scoring wins.
+            rank = 0.0
+            if det.get("box"):
+                rank = _box_area(det["box"]) * max(det["score"], 0.01)
+                if det.get("label") == "bird":
+                    rank *= 2.0
+            elif r and r.get("is_bird"):
+                rank = r["confidence"] * 0.001  # weak, but better than nothing
+
+            if rank > best_rank:
+                best_rank = rank
+                best = {
+                    "species": (r["species"] if r and r.get("is_bird") else None),
+                    "confidence": (r["confidence"] if r and r.get("is_bird") else 0.0),
+                    "det_label": det.get("label"),
+                    "det_score": round(det.get("score", 0.0), 4),
+                    "frame_time": round(t, 3),
+                }
+                shutil.copyfile(tmp, best_tmp)
+
+            if frame_found:
+                found = True
+                # Don't break: later frames may rank better for the poster.
+
+        if found and best_tmp.exists():
+            shutil.move(str(best_tmp), str(poster_path(video)))
     finally:
         tmp.unlink(missing_ok=True)
+        best_tmp.unlink(missing_ok=True)
     return found, best
 
 
@@ -167,22 +232,22 @@ class SlowMoVerifier:
                     "verified_at": datetime.now().isoformat(timespec="seconds"),
                     "best_species": best["species"],
                     "best_confidence": round(best["confidence"], 4),
+                    "det_label": best["det_label"],
+                    "det_score": best["det_score"],
                 })
                 save_meta(v, meta)
                 if found:
                     kept += 1
+                    label = best["species"] or best["det_label"] or "bird"
                     log.info(f"Slow-mo verify: KEEP {v.name} "
-                             f"({best['species']} {best['confidence']:.0%})")
+                             f"({label} {best['confidence']:.0%})")
                 else:
-                    dest = REJECTED_DIR / v.name
-                    v.rename(dest)
-                    sc = sidecar_path(v)
-                    if sc.exists():
-                        sc.rename(REJECTED_DIR / sc.name)
+                    for src in (v, sidecar_path(v), poster_path(v)):
+                        if src.exists():
+                            src.rename(REJECTED_DIR / src.name)
                     quarantined += 1
-                    bs = best["species"] or "nothing"
-                    log.info(f"Slow-mo verify: QUARANTINE {v.name} "
-                             f"(best: {bs} {best['confidence']:.0%})")
+                    bs = best["species"] or best["det_label"] or "nothing"
+                    log.info(f"Slow-mo verify: QUARANTINE {v.name} (best: {bs})")
                 processed += 1
                 self._stop.wait(throttle)  # gentle throttle between videos
             if processed:

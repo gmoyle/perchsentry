@@ -261,6 +261,43 @@ def _get_log_entries():
         return entries
 
 
+def _compute_visits(gap_secs=120):
+    """Cluster consecutive sightings into visits: a gap longer than gap_secs
+    ends a visit. Duration resolution is bounded by motion_cooldown, so short
+    single-detection visits report 0s — still useful for counts and patterns.
+    (Continuous NPU tracking will sharpen this once the detection loop moves
+    to the Hailo full-time.)"""
+    deleted = _load_deleted()
+    visits = []
+    cur = None
+    for e in _get_log_entries():
+        if e["filename"] in deleted:
+            continue
+        if cur is not None and (e["dt"] - cur["end"]).total_seconds() <= gap_secs:
+            cur["end"] = e["dt"]
+            cur["count"] += 1
+            cur["species"][e["species"]] = cur["species"].get(e["species"], 0) + 1
+        else:
+            if cur is not None:
+                visits.append(cur)
+            cur = {"start": e["dt"], "end": e["dt"], "count": 1,
+                   "species": {e["species"]: 1}}
+    if cur is not None:
+        visits.append(cur)
+    return [{
+        "start": v["start"].strftime("%Y-%m-%d %H:%M:%S"),
+        "end": v["end"].strftime("%Y-%m-%d %H:%M:%S"),
+        "duration_secs": int((v["end"] - v["start"]).total_seconds()),
+        "detections": v["count"],
+        "species": max(v["species"], key=v["species"].get),
+    } for v in visits]
+
+
+@app.route("/api/visits")
+def api_visits():
+    return jsonify(list(reversed(_compute_visits()))[:100])
+
+
 @app.route("/sightings")
 def sightings():
     deleted = _load_deleted()
@@ -407,11 +444,20 @@ def api_stats():
 
     total_captures = len(list(CAPTURES_DIR.glob("*.jpg"))) if CAPTURES_DIR.exists() else 0
 
+    visits = _compute_visits()
+    today_str = datetime.now().strftime("%Y-%m-%d")
+    today_visits = [v for v in visits if v["start"][:10] == today_str]
+    timed = [v for v in visits if v["duration_secs"] > 0]
+    avg_visit_secs = int(sum(v["duration_secs"] for v in timed) / len(timed)) if timed else 0
+
     return jsonify({
         "total_sightings": len(entries),
         "unique_species": len(species_counts),
         "today_sightings": today_count,
         "total_captures": total_captures,
+        "visits_total": len(visits),
+        "visits_today": len(today_visits),
+        "avg_visit_secs": avg_visit_secs,
         "by_hour": by_hour,
         "by_day": by_day,
         "top_species": top_species,
@@ -445,6 +491,7 @@ def _slowmo_entry(v):
     conf = meta.get("best_confidence")
     if conf is None:
         conf = meta.get("trigger_confidence")
+    poster = v.with_name(v.stem + "_poster.jpg")
     return {
         "filename": v.name,
         "timestamp": v.stem.replace("slowmo_", ""),
@@ -454,6 +501,7 @@ def _slowmo_entry(v):
         "confidence": conf,
         "is_hummingbird": meta.get("trigger_is_hummingbird"),
         "verified": meta.get("verified"),
+        "poster": poster.name if poster.exists() else None,
     }
 
 
@@ -470,6 +518,18 @@ def slowmo_rejected_list():
         return jsonify([])
     videos = sorted(rej.glob("slowmo_*.mp4"), reverse=True)
     return jsonify([_slowmo_entry(v) for v in videos])
+
+
+@app.route("/slowmo/poster/<filename>")
+def slowmo_poster(filename):
+    if "/" in filename or "\\" in filename or ".." in filename \
+            or not filename.endswith("_poster.jpg") or not filename.startswith("slowmo_"):
+        abort(400)
+    for base in (SLOWMO_DIR, SLOWMO_DIR / "rejected"):
+        path = base / filename
+        if path.exists():
+            return send_file(path, mimetype="image/jpeg")
+    abort(404)
 
 
 @app.route("/slowmo/rejected/<filename>")
@@ -491,6 +551,7 @@ def delete_slowmo_rejected(filename):
         abort(404)
     path.unlink()
     path.with_suffix(".json").unlink(missing_ok=True)
+    (SLOWMO_DIR / "rejected" / (path.stem + "_poster.jpg")).unlink(missing_ok=True)
     log.info(f"Deleted quarantined slow-mo: {filename}")
     return jsonify({"ok": True})
 
@@ -503,6 +564,9 @@ def slowmo_restore(filename):
     if not src.exists():
         abort(404)
     src.rename(SLOWMO_DIR / filename)
+    rej_poster = SLOWMO_DIR / "rejected" / (src.stem + "_poster.jpg")
+    if rej_poster.exists():
+        rej_poster.rename(SLOWMO_DIR / rej_poster.name)
     sc = src.with_suffix(".json")
     if sc.exists():
         try:
@@ -540,6 +604,8 @@ def delete_slowmo(filename):
     if not path.exists():
         abort(404)
     path.unlink()
+    path.with_suffix(".json").unlink(missing_ok=True)
+    (SLOWMO_DIR / (path.stem + "_poster.jpg")).unlink(missing_ok=True)
     log.info(f"Deleted slow-mo video: {filename}")
     return jsonify({"ok": True})
 

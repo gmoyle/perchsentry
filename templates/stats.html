@@ -62,6 +62,8 @@
     <div class="card"><div class="val" id="uniqueSpecies">—</div><div class="label">Species seen</div></div>
     <div class="card"><div class="val" id="todaySightings">—</div><div class="label">Today</div></div>
     <div class="card"><div class="val" id="totalCaptures">—</div><div class="label">Captures</div></div>
+    <div class="card"><div class="val" id="visitsToday">—</div><div class="label">Visits today</div></div>
+    <div class="card"><div class="val" id="avgVisit">—</div><div class="label">Avg visit</div></div>
     <div class="card" id="diskCard">
       <div class="val" id="diskFree">—</div>
       <div class="label">GB free</div>
@@ -80,6 +82,16 @@
     <h2>Activity by day (last 30 days)</h2>
     <div class="chart-wrap" style="height:180px">
       <canvas id="dayChart"></canvas>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>Recent visits</h2>
+    <div class="chart-wrap">
+      <table class="species-table">
+        <thead><tr><th>When</th><th>Species</th><th>Detections</th><th>Duration</th></tr></thead>
+        <tbody id="visitsTable"></tbody>
+      </table>
     </div>
   </div>
 
@@ -103,16 +115,34 @@
       }
     };
 
+    function fmtDur(secs) {
+      if (!secs) return '0s';
+      if (secs < 60) return secs + 's';
+      return Math.floor(secs / 60) + 'm ' + (secs % 60) + 's';
+    }
+
     async function load() {
-      const [stats, disk] = await Promise.all([
+      const [stats, disk, visits] = await Promise.all([
         fetch('/api/stats').then(r => r.json()),
         fetch('/api/disk').then(r => r.json()),
+        fetch('/api/visits').then(r => r.json()),
       ]);
 
       document.getElementById('totalSightings').textContent = stats.total_sightings;
       document.getElementById('uniqueSpecies').textContent = stats.unique_species;
       document.getElementById('todaySightings').textContent = stats.today_sightings;
       document.getElementById('totalCaptures').textContent = stats.total_captures;
+      document.getElementById('visitsToday').textContent = stats.visits_today;
+      document.getElementById('avgVisit').textContent = fmtDur(stats.avg_visit_secs);
+
+      document.getElementById('visitsTable').innerHTML = visits.slice(0, 15).map(v => `
+        <tr>
+          <td>${v.start.slice(5, 16)}</td>
+          <td>${v.species.split(' ').slice(-2).join(' ')}</td>
+          <td>${v.detections}</td>
+          <td>${fmtDur(v.duration_secs)}</td>
+        </tr>
+      `).join('') || '<tr><td colspan="4" style="color:#555">No visits yet</td></tr>';
 
       document.getElementById('diskFree').textContent = disk.free_gb;
       const bar = document.getElementById('diskBar');

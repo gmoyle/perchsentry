@@ -11,7 +11,7 @@ from PIL import Image
 from classify import load_interpreter, load_labels, classify_image
 from slowmo import SlowMoCapture
 from daynight import is_daytime
-from objdetect import contains_bird
+from objdetect import analyze_frame
 
 CAPTURES_DIR = Path(__file__).parent / "captures"
 CAPTURES_DIR.mkdir(exist_ok=True)
@@ -59,6 +59,31 @@ def images_are_similar(path_a, path_b, threshold=0.98):
         return similarity >= threshold
     except Exception:
         return False
+
+
+def crop_to_box(path, box, margin=0.2, min_px=48):
+    """Save a padded crop of a normalized (x1,y1,x2,y2) box next to `path`.
+
+    Returns the crop path, or None if the box is too small or cropping fails —
+    callers then classify the full frame as before.
+    """
+    try:
+        with Image.open(path) as img:
+            w, h = img.size
+            x1, y1, x2, y2 = box
+            bw, bh = x2 - x1, y2 - y1
+            x1 = max(0.0, x1 - bw * margin)
+            y1 = max(0.0, y1 - bh * margin)
+            x2 = min(1.0, x2 + bw * margin)
+            y2 = min(1.0, y2 + bh * margin)
+            px = (int(x1 * w), int(y1 * h), int(x2 * w), int(y2 * h))
+            if px[2] - px[0] < min_px or px[3] - px[1] < min_px:
+                return None
+            out = path.with_name(path.stem + "_crop.jpg")
+            img.crop(px).save(out, "JPEG", quality=90)
+            return out
+    except Exception:
+        return None
 
 
 class MotionDetector:
@@ -179,15 +204,29 @@ class MotionDetector:
                         return gray, last_capture
                     self._last_saved_path = path
 
-                    # Object detection pre-filter (fast, skips bird classifier if no animal)
-                    if not contains_bird(path):
+                    # Object detection pre-filter (NPU): no animal → discard.
+                    det = analyze_frame(path)
+                    if not det["has_animal"]:
                         log.debug(f"Pre-filter: no animal detected, deleting {path.name}")
                         path.unlink(missing_ok=True)
                         self._last_saved_path = None
                         self._set_status(last_event="no_animal", last_event_at=now)
                         return gray, last_capture
 
-                    result = classify_image(path, self._interp, self._labels)
+                    # Classify a bird-centered crop when the NPU gave us a box:
+                    # the bird fills the classifier input instead of ~5% of the
+                    # frame, which dramatically improves species confidence.
+                    classify_path = path
+                    crop_tmp = None
+                    if det.get("box"):
+                        crop_tmp = crop_to_box(path, det["box"])
+                        if crop_tmp:
+                            classify_path = crop_tmp
+                    try:
+                        result = classify_image(classify_path, self._interp, self._labels)
+                    finally:
+                        if crop_tmp:
+                            crop_tmp.unlink(missing_ok=True)
                     if result["is_bird"]:
                         species = result["species"]
                         confidence = result["confidence"]

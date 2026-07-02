@@ -4,10 +4,16 @@ Object detection pre-filter using Hailo-8L NPU (YOLOv8).
 Runs on the Hailo NPU for near-zero CPU overhead. Falls back to TFLite on CPU
 if no HEF model is found. Skips classification entirely if no animal detected.
 
+analyze_frame() additionally returns the best animal bounding box (normalized
+x1,y1,x2,y2) so callers can classify a bird-centered crop instead of the full
+frame — the bird fills the classifier input instead of ~5% of it, which
+dramatically improves species confidence.
+
 HEF model sourced from hailo-tappas-core: /usr/share/hailo-models/yolov8s_h8l.hef
 """
 
 import logging
+import threading
 import numpy as np
 from pathlib import Path
 from PIL import Image
@@ -40,6 +46,9 @@ _hailo_infer = None
 _hailo_keepalive = None
 _tflite_interp = None
 _tflite_labels = None
+# The detector thread and the nightly slow-mo verifier share this pipeline;
+# InferVStreams on a single network group is not safe to enter concurrently.
+_infer_lock = threading.Lock()
 
 
 def _find_hef():
@@ -116,47 +125,89 @@ def _init():
         _backend = "passthrough"
 
 
-def contains_bird(image_path, min_confidence=0.3):
+def _hailo_boxes(image_path, min_confidence):
+    """All animal detections as [{'label', 'score', 'box': (x1,y1,x2,y2) 0-1}]."""
+    infer_fn, w, h = _hailo_infer
+    with _infer_lock:
+        outputs = infer_fn(image_path)
+    dets = []
+    for key, tensor in outputs.items():
+        arr = tensor[0]
+        # NMS-postprocessed HEF (yolov8s_h8l): a list with one entry per
+        # COCO class, each an (N, 5) array of [y1, x1, y2, x2, score],
+        # coordinates normalized 0-1.
+        if isinstance(arr, list):
+            for cls_id, cls_dets in enumerate(arr):
+                label = _COCO_LABELS.get(cls_id, "")
+                if label not in ANIMAL_CLASSES:
+                    continue
+                for det in cls_dets:
+                    score = float(det[4])
+                    if score >= min_confidence:
+                        y1, x1, y2, x2 = (float(det[0]), float(det[1]),
+                                          float(det[2]), float(det[3]))
+                        dets.append({
+                            "label": label, "score": score,
+                            "box": (max(0.0, x1), max(0.0, y1),
+                                    min(1.0, x2), min(1.0, y2)),
+                        })
+        # Raw (no-NMS) HEF: flat (N, 6) array of [x1, y1, x2, y2, conf, cls]
+        # in model-input pixels.
+        elif hasattr(arr, "ndim") and arr.ndim == 2:
+            for det in arr:
+                if len(det) >= 6:
+                    score = float(det[4])
+                    cls_id = int(det[5])
+                    label = _COCO_LABELS.get(cls_id, "")
+                    if score >= min_confidence and label in ANIMAL_CLASSES:
+                        dets.append({
+                            "label": label, "score": score,
+                            "box": (max(0.0, float(det[0]) / w), max(0.0, float(det[1]) / h),
+                                    min(1.0, float(det[2]) / w), min(1.0, float(det[3]) / h)),
+                        })
+    return dets
+
+
+def analyze_frame(image_path, min_confidence=0.3):
+    """Detect animals in a frame.
+
+    Returns {"supported": bool, "has_animal": bool,
+             "box": (x1,y1,x2,y2) normalized or None,
+             "label": str or None, "score": float}.
+    "supported" is True only on the Hailo backend (boxes available).
+    Fail-open on errors: has_animal True, box None.
+    """
     global _backend
     if _backend is None:
         _init()
-    if _backend == "passthrough":
-        return True
+
     if _backend == "hailo":
-        return _hailo_detect(image_path, min_confidence)
-    return _tflite_detect(image_path, min_confidence)
+        try:
+            dets = _hailo_boxes(image_path, min_confidence)
+        except Exception as e:
+            log.debug(f"Hailo detection error (fail-open): {type(e).__name__}: {e}")
+            return {"supported": True, "has_animal": True, "box": None,
+                    "label": None, "score": 0.0}
+        if not dets:
+            return {"supported": True, "has_animal": False, "box": None,
+                    "label": None, "score": 0.0}
+        # Prefer bird boxes, then highest score
+        dets.sort(key=lambda d: (d["label"] == "bird", d["score"]), reverse=True)
+        best = dets[0]
+        return {"supported": True, "has_animal": True, "box": best["box"],
+                "label": best["label"], "score": best["score"]}
+
+    if _backend == "tflite":
+        return {"supported": False,
+                "has_animal": _tflite_detect(image_path, min_confidence),
+                "box": None, "label": None, "score": 0.0}
+
+    return {"supported": False, "has_animal": True, "box": None,
+            "label": None, "score": 0.0}
 
 
-def _hailo_detect(image_path, min_confidence):
-    try:
-        infer_fn, w, h = _hailo_infer
-        outputs = infer_fn(image_path)
-        for key, tensor in outputs.items():
-            arr = tensor[0]
-            # NMS-postprocessed HEF (yolov8s_h8l): a list with one entry per
-            # COCO class, each an (N, 5) array of [y1, x1, y2, x2, score].
-            if isinstance(arr, list):
-                for cls_id, dets in enumerate(arr):
-                    label = _COCO_LABELS.get(cls_id, "")
-                    if label not in ANIMAL_CLASSES:
-                        continue
-                    for det in dets:
-                        if float(det[4]) >= min_confidence:
-                            return True
-            # Raw (no-NMS) HEF: flat (N, 6) array of [x1, y1, x2, y2, conf, cls]
-            elif hasattr(arr, "ndim") and arr.ndim == 2:
-                for det in arr:
-                    if len(det) >= 6:
-                        conf = float(det[4])
-                        cls_id = int(det[5])
-                        if conf >= min_confidence:
-                            label = _COCO_LABELS.get(cls_id, "")
-                            if label in ANIMAL_CLASSES:
-                                return True
-        return False
-    except Exception as e:
-        log.debug(f"Hailo detection error (fail-open): {type(e).__name__}: {e}")
-        return True  # fail open
+def contains_bird(image_path, min_confidence=0.3):
+    return analyze_frame(image_path, min_confidence)["has_animal"]
 
 
 def _tflite_detect(image_path, min_confidence):

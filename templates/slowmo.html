@@ -214,11 +214,12 @@
       const labelCls = (v.verified === true) ? 'label' : 'label unverified';
       const restoreBtn = rej ? `<button class="card-restore" title="Restore" onclick="restore('${v.filename}')">♻</button>` : '';
       const delUrl = rej ? `/api/slowmo-rejected/${v.filename}` : `/api/slowmo/${v.filename}`;
+      const poster = v.poster ? ` poster="/slowmo/poster/${v.poster}"` : '';
       return `
         <div class="card ${rej?'rejected':''}" id="card-${v.filename}">
           ${restoreBtn}
           <button class="card-delete" title="Delete" onclick="del('${v.filename}','${delUrl}')">🗑</button>
-          <video src="${src}" controls preload="none" playsinline></video>
+          <video src="${src}" controls preload="none" playsinline${poster}></video>
           <div class="card-info">
             <div>
               <div class="${labelCls}">${sp}${conf}${hbBadge}${rej?'<span class="badge rej">quarantined</span>':''}</div>
