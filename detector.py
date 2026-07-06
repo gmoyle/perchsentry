@@ -97,7 +97,7 @@ class MotionDetector:
         self._stop_event = threading.Event()
         self._interp = load_interpreter()
         self._labels = load_labels()
-        self._slowmo = SlowMoCapture(camera)
+        self._slowmo = SlowMoCapture(camera, get_settings)
         self._last_saved_path = None
         self._started_at = 0
         self._is_day = True

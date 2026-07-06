@@ -23,6 +23,7 @@ DEFAULTS = {
     "longitude": None,
     "backup_path": "",             # rsync destination, e.g. user@nas:/backups/birds
     "backup_interval": 0,          # hours between backups, 0 = disabled
+    "recording_fan_mode": "normal",  # fan during slow-mo: normal | quiet | silent
 }
 
 

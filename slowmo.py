@@ -8,6 +8,8 @@ from pathlib import Path
 from picamera2.encoders import H264Encoder
 from picamera2.outputs import FileOutput
 
+from fancontrol import RecordingFan
+
 SLOWMO_DIR = Path(__file__).parent / "slowmo"
 SLOWMO_DIR.mkdir(exist_ok=True)
 
@@ -69,8 +71,9 @@ def is_capturing():
 
 
 class SlowMoCapture:
-    def __init__(self, camera):
+    def __init__(self, camera, get_settings=None):
         self.camera = camera
+        self.get_settings = get_settings
         self._lock = threading.Lock()
         self._active = False
 
@@ -117,9 +120,15 @@ class SlowMoCapture:
                     cam.configure(hfr_config)
                     cam.start()
 
-                    # Record H264 natively for CAPTURE_SECS seconds
+                    # Record H264 natively for CAPTURE_SECS seconds. Optionally
+                    # quiet/silence the cooling fan for just this window so it
+                    # doesn't whine into an attached microphone; the fan is
+                    # always restored to automatic control afterwards.
+                    fan_mode = "normal"
+                    if self.get_settings:
+                        fan_mode = self.get_settings().get("recording_fan_mode", "normal")
                     encoder = H264Encoder()
-                    with open(h264_path, "wb") as f:
+                    with open(h264_path, "wb") as f, RecordingFan(fan_mode):
                         cam.start_recording(encoder, FileOutput(f))
                         time.sleep(CAPTURE_SECS)
                         cam.stop_recording()

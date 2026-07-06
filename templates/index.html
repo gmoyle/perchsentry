@@ -615,6 +615,20 @@
       </div>
     </div>
 
+    <div class="divider"></div>
+
+    <div class="controls-group">
+      <span class="group-label">Fan (recording)</span>
+      <div class="control" style="min-width:150px">
+        <div class="label-row"><label>Mode during slow-mo</label></div>
+        <div style="display:flex;gap:6px;margin-top:4px">
+          <button id="fanNormal" class="focus-mode-btn active" onclick="setFanMode('normal')" title="Fan stays under normal automatic control">Normal</button>
+          <button id="fanQuiet" class="focus-mode-btn" onclick="setFanMode('quiet')" title="Low steady speed — soft hum, no spin-up-to-max">Quiet</button>
+          <button id="fanSilent" class="focus-mode-btn" onclick="setFanMode('silent')" title="Fan off during the burst; system restores it right after">Silent</button>
+        </div>
+      </div>
+    </div>
+
    </div>
   </div>
 
@@ -713,6 +727,25 @@
         </div>
       </div>
 
+      <div class="accordion">
+        <button class="accordion-header" onclick="toggleAccordion(this)">
+          Fan (recording) <span class="chevron">▾</span>
+        </button>
+        <div class="accordion-body">
+          <div class="sheet-control">
+            <div class="label-row"><span>Mode during slow-mo</span></div>
+            <div class="focus-btns">
+              <button id="mFanNormal" class="focus-mode-btn active" onclick="setFanMode('normal')">Normal</button>
+              <button id="mFanQuiet" class="focus-mode-btn" onclick="setFanMode('quiet')">Quiet</button>
+              <button id="mFanSilent" class="focus-mode-btn" onclick="setFanMode('silent')">Silent</button>
+            </div>
+          </div>
+          <div class="sheet-control" style="color:#888;font-size:0.75rem;line-height:1.4">
+            Silence the cooling fan while recording so it doesn't whine into the mic. Silent turns it off for the burst; the system restores cooling right after.
+          </div>
+        </div>
+      </div>
+
     </div>
   </div>
 
@@ -781,6 +814,20 @@
       saveSettings();
     }
     if (settings.focus_mode === 'manual') setFocusMode('manual');
+
+    // Recording fan mode — sync desktop + mobile buttons
+    function setFanMode(mode, persist = true) {
+      settings.recording_fan_mode = mode;
+      const map = {
+        normal: ['fanNormal', 'mFanNormal'],
+        quiet:  ['fanQuiet',  'mFanQuiet'],
+        silent: ['fanSilent', 'mFanSilent'],
+      };
+      Object.entries(map).forEach(([m, ids]) =>
+        ids.forEach(id => document.getElementById(id)?.classList.toggle('active', m === mode)));
+      if (persist) saveSettings();
+    }
+    setFanMode(settings.recording_fan_mode || 'normal', false);
 
     // Accordion
     function toggleAccordion(btn) {
@@ -889,6 +936,7 @@
         payload[key] = parseFloat(el.step) < 1 ? parseFloat(el.value) : parseInt(el.value);
       });
       payload.focus_mode = settings.focus_mode;
+      payload.recording_fan_mode = settings.recording_fan_mode;
 
       fetch('/settings', {
         method: 'POST',

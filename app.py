@@ -17,6 +17,7 @@ from slowmo import SLOWMO_DIR, is_capturing
 from cleanup import DiskCleaner, disk_usage
 from backup import BackupScheduler, run_backup
 from verify_slowmo import SlowMoVerifier
+from sysmon import read_temp, temp_history, TempLogger
 
 logging.basicConfig(
     level=logging.INFO,
@@ -124,6 +125,7 @@ _timelapse = TimelapseCapturer(_camera, lambda: _settings)
 _cleaner = DiskCleaner(lambda: _settings)
 _backup = BackupScheduler(lambda: _settings)
 _slowmo_verifier = SlowMoVerifier(lambda: _settings, clients_active=clients_active, set_maintenance=set_maintenance)
+_temp_logger = TempLogger()
 _camera.start()
 _camera.apply_settings(_settings)
 if _camera1.available:
@@ -133,6 +135,7 @@ _timelapse.start()
 _cleaner.start()
 _backup.start()
 _slowmo_verifier.start()
+_temp_logger.start()
 log.info("Camera ready — http://birdbuddy.local:8080/")
 
 
@@ -498,6 +501,17 @@ def api_stats():
 @app.route("/api/disk")
 def api_disk():
     return jsonify(disk_usage())
+
+
+@app.route("/api/temp")
+def api_temp():
+    return jsonify(read_temp())
+
+
+@app.route("/api/temp-history")
+def api_temp_history():
+    hours = max(1, min(int(request.args.get("hours", 24)), 48))
+    return jsonify({"hours": hours, "points": temp_history(hours)})
 
 
 @app.route("/api/backup", methods=["POST"])
