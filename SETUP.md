@@ -17,14 +17,26 @@ Two out-of-tree files, both recreatable from this repo:
 
 ### 1. Root helper — `/usr/local/sbin/birdbuddy-fanctl`
 
-Source of truth is [`fanctl.py`](fanctl.py) in this repo. Install (or reinstall
-after editing) with:
+There are **two copies of this program, and they are separate files:**
+
+| File | Role |
+|------|------|
+| [`fanctl.py`](fanctl.py) (this repo) | The master copy — edit this, git tracks it |
+| `/usr/local/sbin/birdbuddy-fanctl` | The installed copy that actually runs as root |
+
+They must be separate: a program run as root has to live somewhere a non-root
+user can't modify, so it can't just run out of this user-owned repo folder.
+
+> ⚠️ **Editing `fanctl.py` does NOT change fan behavior until you reinstall it.**
+> The running fan control is `/usr/local/sbin/birdbuddy-fanctl`, a copy. After
+> any edit to `fanctl.py`, copy it over again:
 
 ```bash
 sudo install -o root -g root -m 0755 fanctl.py /usr/local/sbin/birdbuddy-fanctl
 ```
 
-It sets the pwm-fan cooling device's `cur_state` (0=off … 4=max):
+(This same command is also how you create it in the first place on a fresh
+machine.) It sets the pwm-fan cooling device's `cur_state` (0=off … 4=max):
 `off`→0, `quiet`→1, `auto`→the level the current temperature calls for.
 
 ### 2. Sudoers rule — `/etc/sudoers.d/010-birdbuddy-fan`
