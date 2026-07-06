@@ -265,12 +265,37 @@ class MotionDetector:
                             daemon=True,
                         ).start()
                     else:
-                        log.debug(f"Motion (no bird/animal, {changed}px), deleting {path.name}")
-                        path.unlink(missing_ok=True)
-                        self._last_saved_path = None
-                        self._set_status(
-                            last_event="no_bird", last_event_at=now,
-                            last_species=None, last_confidence=result.get("confidence"),
-                        )
+                        # Not a bird — but the NPU pre-filter may have labelled
+                        # it a known non-bird animal (cat/dog/bear/…). Keep those
+                        # as a separate "Animals" track instead of discarding, so
+                        # daytime wildlife isn't missed. Bird stats stay pure
+                        # because this logs a distinct ANIMAL DETECTED line.
+                        animal = det.get("label")
+                        if animal and animal != "bird" and s.get("capture_animals", True):
+                            score = det.get("score", 0.0)
+                            log.info(f"ANIMAL DETECTED: {animal} ({score:.1%}) → {path.name}")
+                            self._last_saved_path = path
+                            self._set_status(
+                                last_event="animal_detected", last_event_at=now,
+                                last_species=animal, last_confidence=score,
+                            )
+                            if not self._slowmo.is_active() and s.get("slowmo_animals", True):
+                                if self._clients_active():
+                                    log.info(f"{animal} detected — skipping slow-mo (someone is viewing the site)")
+                                else:
+                                    log.info(f"{animal} detected! Triggering slow-mo capture")
+                                    self._slowmo.capture(animal, score)
+                            if s.get("notify_animals", False):
+                                threading.Thread(
+                                    target=notify, args=(animal, score, s), daemon=True,
+                                ).start()
+                        else:
+                            log.debug(f"Motion (no bird/animal, {changed}px), deleting {path.name}")
+                            path.unlink(missing_ok=True)
+                            self._last_saved_path = None
+                            self._set_status(
+                                last_event="no_bird", last_event_at=now,
+                                last_species=None, last_confidence=result.get("confidence"),
+                            )
 
         return gray, last_capture

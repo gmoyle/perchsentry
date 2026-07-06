@@ -202,6 +202,9 @@ def post_settings():
 CAPTURES_DIR = Path(__file__).parent / "captures"
 LOG_FILE = Path(__file__).parent / "logs" / "birdbuddy.log"
 BIRD_RE = re.compile(r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}).*BIRD DETECTED: (.+?) \((\d+\.\d+)%\) → (motion_\S+\.jpg)")
+# Non-bird animals are logged on a distinct line so they never fall into the
+# bird stats/sightings (which are derived from BIRD DETECTED above).
+ANIMAL_RE = re.compile(r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}).*ANIMAL DETECTED: (.+?) \((\d+\.\d+)%\) → (motion_\S+\.jpg)")
 
 # Filenames the user has explicitly deleted. Stats and sightings are derived
 # from the log file, which keeps the BIRD DETECTED line even after the image
@@ -261,6 +264,37 @@ def _get_log_entries():
                 })
         _log_cache["key"] = key
         _log_cache["entries"] = entries
+        return entries
+
+
+_animal_cache = {"key": None, "entries": []}
+_animal_cache_lock = threading.Lock()
+
+
+def _get_animal_entries():
+    """Parsed ANIMAL DETECTED log entries (non-bird animals), cached on the log
+    file's (mtime, size) like the bird parse."""
+    try:
+        st = LOG_FILE.stat()
+        key = (st.st_mtime_ns, st.st_size)
+    except FileNotFoundError:
+        return []
+    with _animal_cache_lock:
+        if _animal_cache["key"] == key:
+            return _animal_cache["entries"]
+        entries = []
+        for line in LOG_FILE.read_text(errors="ignore").splitlines():
+            m = ANIMAL_RE.search(line)
+            if m:
+                ts, label, score, filename = m.groups()
+                entries.append({
+                    "dt": datetime.strptime(ts, "%Y-%m-%d %H:%M:%S"),
+                    "label": label,
+                    "confidence": float(score),
+                    "filename": filename,
+                })
+        _animal_cache["key"] = key
+        _animal_cache["entries"] = entries
         return entries
 
 
@@ -408,20 +442,28 @@ def help_page():
 def api_captures():
     page = int(request.args.get("page", 0))
     per_page = 48
-    filter_type = request.args.get("filter", "all")  # "all", "bird", "motion"
+    filter_type = request.args.get("filter", "all")  # all | bird | animal | motion
 
     # Bird sightings index for labelling (cached log parse)
     bird_index = {}
     for e in _get_log_entries():
         bird_index[e["filename"]] = {"species": e["species"], "confidence": e["confidence"]}
 
+    # Non-bird animal index (cat/dog/bear/…)
+    animal_index = {}
+    for e in _get_animal_entries():
+        animal_index[e["filename"]] = {"label": e["label"], "confidence": e["confidence"]}
+
     all_files = sorted(CAPTURES_DIR.glob("*.jpg"), reverse=True)
 
-    # Apply server-side filter before pagination
+    # Apply server-side filter before pagination. "motion" now means neither a
+    # bird nor a known animal — plain movement.
     if filter_type == "bird":
         files = [f for f in all_files if f.name in bird_index]
+    elif filter_type == "animal":
+        files = [f for f in all_files if f.name in animal_index]
     elif filter_type == "motion":
-        files = [f for f in all_files if f.name not in bird_index]
+        files = [f for f in all_files if f.name not in bird_index and f.name not in animal_index]
     else:
         files = all_files
 
@@ -431,6 +473,7 @@ def api_captures():
     items = []
     for f in page_files:
         bird = bird_index.get(f.name)
+        animal = animal_index.get(f.name)
         try:
             dt = datetime.strptime(f.stem, "motion_%Y%m%d_%H%M%S")
             ts = dt.strftime("%Y-%m-%d %H:%M:%S")
@@ -442,6 +485,9 @@ def api_captures():
             "is_bird": bird is not None,
             "species": bird["species"] if bird else None,
             "confidence": bird["confidence"] if bird else None,
+            "is_animal": bird is None and animal is not None,
+            "animal": animal["label"] if animal else None,
+            "animal_confidence": animal["confidence"] if animal else None,
         })
 
     return jsonify({"items": items, "total": total, "page": page, "per_page": per_page, "filter": filter_type})
@@ -478,6 +524,12 @@ def api_stats():
 
     total_captures = len(list(CAPTURES_DIR.glob("*.jpg"))) if CAPTURES_DIR.exists() else 0
 
+    # Non-bird animals, tracked separately so bird stats above stay pure.
+    animal_entries = [e for e in _get_animal_entries() if e["filename"] not in deleted]
+    animal_counts = Counter(e["label"] for e in animal_entries)
+    top_animals = [{"label": l, "count": c} for l, c in animal_counts.most_common(20)]
+    animals_today = sum(1 for e in animal_entries if e["dt"].date() == today)
+
     visits = _compute_visits()
     today_str = datetime.now().strftime("%Y-%m-%d")
     today_visits = [v for v in visits if v["start"][:10] == today_str]
@@ -489,6 +541,9 @@ def api_stats():
         "unique_species": len(species_counts),
         "today_sightings": today_count,
         "total_captures": total_captures,
+        "animals_total": len(animal_entries),
+        "animals_today": animals_today,
+        "top_animals": top_animals,
         "visits_total": len(visits),
         "visits_today": len(today_visits),
         "avg_visit_secs": avg_visit_secs,

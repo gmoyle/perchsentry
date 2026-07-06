@@ -74,6 +74,9 @@
     .card:hover { border-color: #4caf50; transform: scale(1.02); }
     .card.bird { border-color: #2e7d32; }
     .card.bird:hover { border-color: #4caf50; }
+    .card.animal { border-color: #b8860b; }
+    .card.animal:hover { border-color: #ffc107; }
+    .card .species.animal { color: #ffc107; }
 
     .card img {
       width: 100%;
@@ -193,6 +196,7 @@
   <div class="filter-bar">
     <button class="filter-btn active" onclick="setFilter('all', this)">All</button>
     <button class="filter-btn" onclick="setFilter('bird', this)">Birds only</button>
+    <button class="filter-btn" onclick="setFilter('animal', this)">Animals</button>
     <button class="filter-btn" onclick="setFilter('motion', this)">Motion only</button>
     <div style="flex:1"></div>
     <button class="filter-btn" onclick="buildTimelapse(this)" id="tlBtn">Build timelapse</button>
@@ -238,11 +242,15 @@
     function renderGrid() {
       const grid = document.getElementById('grid');
       grid.innerHTML = allItems.map((item, idx) => `
-        <div class="card ${item.is_bird ? 'bird' : ''}" onclick="openLightbox(${idx})">
+        <div class="card ${item.is_bird ? 'bird' : item.is_animal ? 'animal' : ''}" onclick="openLightbox(${idx})">
           <button class="card-delete" title="Delete" onclick="event.stopPropagation(); deleteCapture('${item.filename}')">🗑</button>
           <img src="/captures/thumb/${item.filename}" loading="lazy" alt="">
           <div class="overlay">
-            ${item.is_bird ? `<div class="species">${item.species.split(' ').pop()} ${item.confidence.toFixed(0)}%</div>` : ''}
+            ${item.is_bird
+              ? `<div class="species">${item.species.split(' ').pop()} ${item.confidence.toFixed(0)}%</div>`
+              : item.is_animal
+              ? `<div class="species animal">🐾 ${item.animal} ${item.animal_confidence.toFixed(0)}%</div>`
+              : ''}
             <div class="time">${item.timestamp.slice(11,16)} · ${item.timestamp.slice(0,10)}</div>
           </div>
         </div>
@@ -272,7 +280,8 @@
       page++;
 
       const total = data.total;
-      document.getElementById('stats').textContent = `${allItems.length} of ${total} ${filter === 'all' ? 'captures' : filter === 'bird' ? 'bird captures' : 'motion captures'}`;
+      const noun = {all: 'captures', bird: 'bird captures', animal: 'animal captures', motion: 'motion captures'}[filter] || 'captures';
+      document.getElementById('stats').textContent = `${allItems.length} of ${total} ${noun}`;
       btn.disabled = allItems.length >= total;
       btn.textContent = allItems.length >= total ? 'All loaded' : 'Load more';
 
@@ -290,6 +299,8 @@
       document.getElementById('lbImg').src = `/captures/${item.filename}`;
       document.getElementById('lbInfo').innerHTML = item.is_bird
         ? `<span class="lb-species">${item.species}</span> — ${item.confidence.toFixed(1)}% confidence<br><span style="color:#888">${item.timestamp}</span>`
+        : item.is_animal
+        ? `<span class="lb-species" style="color:#ffc107">🐾 ${item.animal}</span> — ${item.animal_confidence.toFixed(1)}% confidence<br><span style="color:#888">${item.timestamp}</span>`
         : `<span style="color:#888">${item.timestamp}</span>`;
     }
 

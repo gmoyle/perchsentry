@@ -68,6 +68,7 @@
     <div class="card"><div class="val" id="totalCaptures">—</div><div class="label">Captures</div></div>
     <div class="card"><div class="val" id="visitsToday">—</div><div class="label">Visits today</div></div>
     <div class="card"><div class="val" id="avgVisit">—</div><div class="label">Avg visit</div></div>
+    <div class="card"><div class="val" id="animalsTotal" style="color:#ffc107">—</div><div class="label">Animals (<span id="animalsToday">0</span> today)</div></div>
     <div class="card" id="diskCard">
       <div class="val" id="diskFree">—</div>
       <div class="label">GB free</div>
@@ -121,6 +122,16 @@
     </div>
   </div>
 
+  <div class="section" id="animalsSection" style="display:none">
+    <h2>Other animals</h2>
+    <div class="chart-wrap">
+      <table class="species-table">
+        <thead><tr><th>Animal</th><th>Count</th></tr></thead>
+        <tbody id="animalsTable"></tbody>
+      </table>
+    </div>
+  </div>
+
   <script>
     const chartDefaults = {
       responsive: true, maintainAspectRatio: false,
@@ -152,6 +163,21 @@
       document.getElementById('totalCaptures').textContent = stats.total_captures;
       document.getElementById('visitsToday').textContent = stats.visits_today;
       document.getElementById('avgVisit').textContent = fmtDur(stats.avg_visit_secs);
+
+      // Non-bird animals (separate from bird stats)
+      document.getElementById('animalsTotal').textContent = stats.animals_total ?? 0;
+      document.getElementById('animalsToday').textContent = stats.animals_today ?? 0;
+      const animals = stats.top_animals || [];
+      if (animals.length) {
+        document.getElementById('animalsSection').style.display = '';
+        const amax = animals[0].count || 1;
+        document.getElementById('animalsTable').innerHTML = animals.map(a => `
+          <tr>
+            <td>${a.label}<div class="bar" style="width:${Math.round(a.count/amax*100)}%;background:#ffc107"></div></td>
+            <td style="color:#ffc107">${a.count}</td>
+          </tr>
+        `).join('');
+      }
 
       document.getElementById('visitsTable').innerHTML = visits.slice(0, 15).map(v => `
         <tr>

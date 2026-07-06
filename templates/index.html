@@ -629,6 +629,33 @@
       </div>
     </div>
 
+    <div class="divider"></div>
+
+    <div class="controls-group">
+      <span class="group-label">Animals (non-bird)</span>
+      <div class="control" style="min-width:110px">
+        <div class="label-row"><label>Capture</label></div>
+        <div style="display:flex;gap:6px;margin-top:4px">
+          <button id="capAnimalsOn" class="focus-mode-btn" onclick="setAnimalOpt('capture_animals', true)">On</button>
+          <button id="capAnimalsOff" class="focus-mode-btn" onclick="setAnimalOpt('capture_animals', false)">Off</button>
+        </div>
+      </div>
+      <div class="control" style="min-width:110px">
+        <div class="label-row"><label>Slow-mo record</label></div>
+        <div style="display:flex;gap:6px;margin-top:4px">
+          <button id="smAnimalsOn" class="focus-mode-btn" onclick="setAnimalOpt('slowmo_animals', true)">On</button>
+          <button id="smAnimalsOff" class="focus-mode-btn" onclick="setAnimalOpt('slowmo_animals', false)">Off</button>
+        </div>
+      </div>
+      <div class="control" style="min-width:110px">
+        <div class="label-row"><label>Notify</label></div>
+        <div style="display:flex;gap:6px;margin-top:4px">
+          <button id="ntAnimalsOn" class="focus-mode-btn" onclick="setAnimalOpt('notify_animals', true)">On</button>
+          <button id="ntAnimalsOff" class="focus-mode-btn" onclick="setAnimalOpt('notify_animals', false)">Off</button>
+        </div>
+      </div>
+    </div>
+
    </div>
   </div>
 
@@ -746,6 +773,38 @@
         </div>
       </div>
 
+      <div class="accordion">
+        <button class="accordion-header" onclick="toggleAccordion(this)">
+          Animals (non-bird) <span class="chevron">▾</span>
+        </button>
+        <div class="accordion-body">
+          <div class="sheet-control">
+            <div class="label-row"><span>Capture</span></div>
+            <div class="focus-btns">
+              <button id="mCapAnimalsOn" class="focus-mode-btn" onclick="setAnimalOpt('capture_animals', true)">On</button>
+              <button id="mCapAnimalsOff" class="focus-mode-btn" onclick="setAnimalOpt('capture_animals', false)">Off</button>
+            </div>
+          </div>
+          <div class="sheet-control">
+            <div class="label-row"><span>Slow-mo record</span></div>
+            <div class="focus-btns">
+              <button id="mSmAnimalsOn" class="focus-mode-btn" onclick="setAnimalOpt('slowmo_animals', true)">On</button>
+              <button id="mSmAnimalsOff" class="focus-mode-btn" onclick="setAnimalOpt('slowmo_animals', false)">Off</button>
+            </div>
+          </div>
+          <div class="sheet-control">
+            <div class="label-row"><span>Notify</span></div>
+            <div class="focus-btns">
+              <button id="mNtAnimalsOn" class="focus-mode-btn" onclick="setAnimalOpt('notify_animals', true)">On</button>
+              <button id="mNtAnimalsOff" class="focus-mode-btn" onclick="setAnimalOpt('notify_animals', false)">Off</button>
+            </div>
+          </div>
+          <div class="sheet-control" style="color:#888;font-size:0.75rem;line-height:1.4">
+            Keeps cats, dogs, bears and other animals the detector recognizes, in a separate track from birds. (Squirrels, deer and fox need a future wildlife model.)
+          </div>
+        </div>
+      </div>
+
     </div>
   </div>
 
@@ -828,6 +887,21 @@
       if (persist) saveSettings();
     }
     setFanMode(settings.recording_fan_mode || 'normal', false);
+
+    // Animals (non-bird) on/off toggles — sync desktop + mobile
+    const ANIMAL_OPTS = {
+      capture_animals: ['capAnimalsOn', 'capAnimalsOff', 'mCapAnimalsOn', 'mCapAnimalsOff'],
+      slowmo_animals:  ['smAnimalsOn',  'smAnimalsOff',  'mSmAnimalsOn',  'mSmAnimalsOff'],
+      notify_animals:  ['ntAnimalsOn',  'ntAnimalsOff',  'mNtAnimalsOn',  'mNtAnimalsOff'],
+    };
+    function setAnimalOpt(key, val, persist = true) {
+      settings[key] = val;
+      const [onD, offD, onM, offM] = ANIMAL_OPTS[key];
+      [onD, onM].forEach(id => document.getElementById(id)?.classList.toggle('active', val));
+      [offD, offM].forEach(id => document.getElementById(id)?.classList.toggle('active', !val));
+      if (persist) saveSettings();
+    }
+    Object.keys(ANIMAL_OPTS).forEach(k => setAnimalOpt(k, !!settings[k], false));
 
     // Accordion
     function toggleAccordion(btn) {
@@ -937,6 +1011,9 @@
       });
       payload.focus_mode = settings.focus_mode;
       payload.recording_fan_mode = settings.recording_fan_mode;
+      payload.capture_animals = settings.capture_animals;
+      payload.slowmo_animals = settings.slowmo_animals;
+      payload.notify_animals = settings.notify_animals;
 
       fetch('/settings', {
         method: 'POST',

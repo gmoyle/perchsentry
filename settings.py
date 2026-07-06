@@ -24,6 +24,11 @@ DEFAULTS = {
     "backup_path": "",             # rsync destination, e.g. user@nas:/backups/birds
     "backup_interval": 0,          # hours between backups, 0 = disabled
     "recording_fan_mode": "normal",  # fan during slow-mo: normal | quiet | silent
+    # Non-bird animals (cat/dog/bear/… — whatever the NPU object detector knows)
+    # are kept as a separate "Animals" track so they don't dilute bird stats.
+    "capture_animals": True,       # keep captures of detected non-bird animals
+    "slowmo_animals": True,        # also record a slow-mo clip for them
+    "notify_animals": False,       # send an ntfy alert for them (off = quieter)
 }
 
 
