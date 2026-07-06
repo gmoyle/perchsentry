@@ -212,6 +212,28 @@ then start getting caught in daylight.
 
 ---
 
+## Gotchas learned during the build (read if compiling YOLOv9-c + in-HEF NMS)
+
+- **DFC 3.30 ↔ HailoRT 4.20 is the correct pairing.** Good to proceed.
+- **NMS JSON layer names are the #1 silent failure.** The Model Zoo
+  `yolov9c_nms_config.json` uses the HAR's post-parse layer names and is set to
+  80 classes. After `hailo parser`, read the parsed HAR's real conv names and
+  rewrite the box/class decoder entries to match, and set `classes: 3`. Stale
+  names still compile but decode to garbage boxes.
+- **Cut at the 6 raw heads:** three `cv2.*.2` (box, 4×reg_max=64 ch) + three
+  `cv3.*.2` (class — must be **3 ch**; verify, it proves the MD head). Preserve
+  the box/class-per-stride order (strides 8/16/32) the config expects.
+- **Validate in the DFC before HEF.** `runner.infer` (native + quantized) on a
+  test image with an obvious animal; confirm sane boxes/classes. Debugging on
+  the Pi is far slower.
+- **Calibration `.npy`:** `(N,640,640,3)` uint8 NHWC 0–255 (no manual /255 — the
+  `normalization(0,255)` layer does it), **letterboxed** to 640 with 114 pad.
+- **Preprocessing to report back:** letterbox 640 / pad 114 / no normalization;
+  class map `{0:animal,1:person,2:vehicle}`. The Pi's current detector uses
+  plain resize, so the MegaDetector path must switch to letterbox to match.
+- **CPU-NMS fallback is acceptable** if in-HEF NMS is troublesome: detection
+  runs per motion-event, not at high fps. Document which path was taken.
+
 ## Appendix: what happens on the Pi afterward (context, not your task)
 
 - `objdetect.py` gains a MegaDetector backend that reports `has_animal` + box
