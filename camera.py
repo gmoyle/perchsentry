@@ -39,6 +39,10 @@ class Camera:
         self._stop = threading.Event()
         self._paused = threading.Event()   # set = encode loop should idle
         self._loop_idle = threading.Event()  # set = encode loop confirmed idle
+        # Returns the live-viewer count for a stream key (self.cam_id or
+        # "mobile"). Defaults to "always on"; app.py wires the real counter in
+        # so the encode loop can idle when nobody is watching.
+        self._viewers = lambda key: 1
         # Guards every call into self.cam. Settings changes (apply_settings)
         # and slow-mo bursts both reconfigure/control the same picamera2
         # object from different threads — without this, a settings POST
@@ -70,20 +74,27 @@ class Camera:
         import logging
         log = logging.getLogger("birdbuddy")
         while not self._stop.is_set():
-            if self._paused.is_set():
+            main_wanted = self._viewers(self.cam_id) > 0
+            mobile_wanted = self.cam_id == 0 and self._viewers("mobile") > 0
+            # Encode only what someone is actually watching. When paused for
+            # slow-mo, or when nobody has the live stream open, don't touch the
+            # camera or spend CPU on JPEGs no one will see. The stream is
+            # unwatched most of the time, so this removes the bulk of idle CPU.
+            if self._paused.is_set() or not (main_wanted or mobile_wanted):
                 self._loop_idle.set()
-                time.sleep(0.05)
+                time.sleep(0.05 if self._paused.is_set() else 0.25)
                 continue
             self._loop_idle.clear()
             try:
                 with self.cam_lock:
                     arr = self.cam.capture_array("main")
                 img = Image.fromarray(arr[:, :, ::-1], mode="RGB")
-                buf = io.BytesIO()
-                img.save(buf, format="JPEG", quality=70)
-                with _frame_locks[self.cam_id]:
-                    _frames[self.cam_id] = buf.getvalue()
-                if self.cam_id == 0:
+                if main_wanted:
+                    buf = io.BytesIO()
+                    img.save(buf, format="JPEG", quality=70)
+                    with _frame_locks[self.cam_id]:
+                        _frames[self.cam_id] = buf.getvalue()
+                if mobile_wanted:
                     mob = img.copy()
                     mob.thumbnail((640, 360))
                     mbuf = io.BytesIO()
@@ -104,6 +115,11 @@ class Camera:
     def resume_from_slowmo(self):
         """Resume the encode loop after slow-mo capture."""
         self._paused.clear()
+
+    def set_viewer_source(self, fn):
+        """Wire a callable(key)->int giving the live-viewer count for a stream
+        key, so the encode loop can pause when nobody is watching."""
+        self._viewers = fn
 
     def start(self):
         if not self.available:

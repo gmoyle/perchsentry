@@ -101,7 +101,8 @@ _camera = Camera(cam_id=0)
 _camera1 = Camera(cam_id=1)
 import time as _time
 _activity_lock = threading.Lock()
-_active_streams = 0
+# Live-viewer counts per stream key (0, 1, "mobile").
+_stream_counts = defaultdict(int)
 _last_request_at = 0.0
 CLIENT_GRACE_SECS = 20.0
 # Endpoints that poll on a timer — they shouldn't count as "someone browsing"
@@ -115,9 +116,16 @@ def clients_active():
     the 120fps camera reconfiguration both interrupts the live feed and has
     been the trigger for camera-pipeline hangs under concurrent load."""
     with _activity_lock:
-        if _active_streams > 0:
+        if sum(_stream_counts.values()) > 0:
             return True
     return (_time.time() - _last_request_at) < CLIENT_GRACE_SECS
+
+
+def _stream_viewers(key):
+    """Live-viewer count for a stream key (0, 1, or "mobile"). Lets the camera
+    encode loop pause when nobody is watching that stream."""
+    with _activity_lock:
+        return _stream_counts.get(key, 0)
 
 
 _detector = MotionDetector(_camera, lambda: _settings, clients_active=clients_active)
@@ -126,6 +134,9 @@ _cleaner = DiskCleaner(lambda: _settings)
 _backup = BackupScheduler(lambda: _settings)
 _slowmo_verifier = SlowMoVerifier(lambda: _settings, clients_active=clients_active, set_maintenance=set_maintenance)
 _temp_logger = TempLogger()
+# Let the cameras idle their encode loops when no one is viewing the stream.
+_camera.set_viewer_source(_stream_viewers)
+_camera1.set_viewer_source(_stream_viewers)
 _camera.start()
 _camera.apply_settings(_settings)
 if _camera1.available:
@@ -146,15 +157,14 @@ def index():
 
 def _counted_stream(cam_id):
     """Wrap generate_stream to track how many live viewers are connected."""
-    global _active_streams
     with _activity_lock:
-        _active_streams += 1
+        _stream_counts[cam_id] += 1
     try:
         for chunk in generate_stream(cam_id):
             yield chunk
     finally:
         with _activity_lock:
-            _active_streams -= 1
+            _stream_counts[cam_id] -= 1
 
 
 @app.route("/stream")

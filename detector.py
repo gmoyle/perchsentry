@@ -138,6 +138,10 @@ class MotionDetector:
         was_slowmo_active = False
 
         while not self._stop_event.is_set():
+            # 10 Hz motion sampling — fast enough not to miss quick visitors
+            # (e.g. hummingbirds) that only dwell a fraction of a second. The
+            # encoder-gating change already recovered the idle CPU that a lower
+            # rate would have saved, so keep sampling fast.
             time.sleep(0.1)
             try:
                 slowmo_active = self._slowmo.is_active()
