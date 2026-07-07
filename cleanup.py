@@ -9,7 +9,7 @@ CAPTURES_DIR = Path(__file__).parent / "captures"
 TIMELAPSE_DIR = Path(__file__).parent / "timelapse"
 SLOWMO_DIR = Path(__file__).parent / "slowmo"
 
-log = logging.getLogger("birdbuddy")
+log = logging.getLogger("perchsentry")
 
 
 def disk_usage():

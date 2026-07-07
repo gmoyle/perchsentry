@@ -60,7 +60,7 @@ class Camera:
             self.available = True
         except Exception as e:
             import logging
-            logging.getLogger("birdbuddy").warning(f"Camera {self.cam_id} not available: {e}")
+            logging.getLogger("perchsentry").warning(f"Camera {self.cam_id} not available: {e}")
             self.available = False
 
     def _configure(self):
@@ -72,7 +72,7 @@ class Camera:
 
     def _encode_loop(self):
         import logging
-        log = logging.getLogger("birdbuddy")
+        log = logging.getLogger("perchsentry")
         while not self._stop.is_set():
             main_wanted = self._viewers(self.cam_id) > 0
             mobile_wanted = self.cam_id == 0 and self._viewers("mobile") > 0

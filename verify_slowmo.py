@@ -32,7 +32,7 @@ from objdetect import analyze_frame
 from detector import crop_to_box
 
 REJECTED_DIR = SLOWMO_DIR / "rejected"
-log = logging.getLogger("birdbuddy")
+log = logging.getLogger("perchsentry")
 
 # Fractions of the clip to sample: first, quarter, middle, three-quarter, last.
 SAMPLE_FRACTIONS = [0.02, 0.25, 0.5, 0.75, 0.98]

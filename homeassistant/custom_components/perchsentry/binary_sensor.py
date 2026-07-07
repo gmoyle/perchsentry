@@ -1,4 +1,4 @@
-"""BirdBuddy binary sensors — 'recently detected' flags for dashboards."""
+"""PerchSentry binary sensors — 'recently detected' flags for dashboards."""
 from __future__ import annotations
 
 import time
@@ -12,7 +12,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DETECTION_HOLD, DOMAIN
-from .entity import BirdBuddyEntity
+from .entity import PerchSentryEntity
 
 
 async def async_setup_entry(
@@ -23,17 +23,17 @@ async def async_setup_entry(
     coordinator = hass.data[DOMAIN][entry.entry_id]
     async_add_entities(
         [
-            BirdBuddyDetection(
+            PerchSentryDetection(
                 coordinator, entry.entry_id, "bird_detected", "Bird detected", "mdi:bird"
             ),
-            BirdBuddyDetection(
+            PerchSentryDetection(
                 coordinator, entry.entry_id, "animal_detected", "Animal detected", "mdi:paw"
             ),
         ]
     )
 
 
-class BirdBuddyDetection(BirdBuddyEntity, BinarySensorEntity):
+class PerchSentryDetection(PerchSentryEntity, BinarySensorEntity):
     """On for DETECTION_HOLD seconds after a matching detection."""
 
     _attr_device_class = BinarySensorDeviceClass.MOTION

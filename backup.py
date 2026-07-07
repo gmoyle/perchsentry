@@ -8,7 +8,7 @@ CAPTURES_DIR = Path(__file__).parent / "captures"
 SLOWMO_DIR = Path(__file__).parent / "slowmo"
 TIMELAPSE_DIR = Path(__file__).parent / "timelapse"
 
-log = logging.getLogger("birdbuddy")
+log = logging.getLogger("perchsentry")
 
 
 def run_backup(destination):

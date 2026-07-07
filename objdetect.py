@@ -23,7 +23,7 @@ import numpy as np
 from pathlib import Path
 from PIL import Image
 
-log = logging.getLogger("birdbuddy")
+log = logging.getLogger("perchsentry")
 
 # A MegaDetector HEF takes priority over the COCO fallbacks below. It is
 # class-agnostic (animal/person/vehicle) so it catches wildlife COCO never

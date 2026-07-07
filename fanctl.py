@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-"""Privileged fan-level helper for BirdBuddy (invoked via sudo).
+"""Privileged fan-level helper for PerchSentry (invoked via sudo).
 
 Sets the Pi 5 active-cooler speed through the pwm-fan cooling device's
 `cur_state` (0=off … 4=max). We drive the cooling device rather than the raw
@@ -15,7 +15,7 @@ temperature band, so we must hand it back a sensible level explicitly.
 Firmware CPU throttling (~80°C soft, ~85°C hard, ~110°C shutdown) is entirely
 independent of this, so the SoC is protected no matter what level we set.
 
-Deployed copy lives at /usr/local/sbin/birdbuddy-fanctl (root-owned); this
+Deployed copy lives at /usr/local/sbin/perchsentry-fanctl (root-owned); this
 repo copy is the source of truth — reinstall it there after editing.
 """
 import sys
@@ -52,7 +52,7 @@ def auto_level():
 
 def main(argv):
     if len(argv) != 2 or argv[1] not in ("off", "quiet", "auto"):
-        sys.stderr.write("usage: birdbuddy-fanctl off|quiet|auto\n")
+        sys.stderr.write("usage: perchsentry-fanctl off|quiet|auto\n")
         return 2
     cd = find_cooling()
     if not cd:

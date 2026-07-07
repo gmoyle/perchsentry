@@ -5,7 +5,7 @@ build (it already has Pytorch-Wildlife installed). This is fully self-contained.
 
 ## Objective
 
-BirdBuddy (Raspberry Pi 5) already runs **MegaDetector** on the Hailo NPU to
+PerchSentry (Raspberry Pi 5) already runs **MegaDetector** on the Hailo NPU to
 find animals in daytime frames, and logs each non-bird animal generically as
 `"animal"`. We now want to **name the species** (squirrel, deer, fox, raccoon,
 …) using Google's **SpeciesNet classifier**, run on the animal crop.

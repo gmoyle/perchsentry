@@ -4,10 +4,10 @@ import threading
 
 from sysmon import read_temp
 
-log = logging.getLogger("birdbuddy")
+log = logging.getLogger("perchsentry")
 
 # Root helper (see fanctl.py) reachable via a narrow NOPASSWD sudoers rule.
-FANCTL = "/usr/local/sbin/birdbuddy-fanctl"
+FANCTL = "/usr/local/sbin/perchsentry-fanctl"
 
 # If the SoC reaches this while the fan is suppressed for a recording, restore
 # cooling immediately — mid-recording noise beats thermal throttling. Sits

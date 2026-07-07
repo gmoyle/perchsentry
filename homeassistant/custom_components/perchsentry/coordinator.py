@@ -1,4 +1,4 @@
-"""Data update coordinator for BirdBuddy."""
+"""Data update coordinator for PerchSentry."""
 from __future__ import annotations
 
 import logging
@@ -24,8 +24,8 @@ from .const import (
 _LOGGER = logging.getLogger(__name__)
 
 
-class BirdBuddyCoordinator(DataUpdateCoordinator):
-    """Polls BirdBuddy's /api/ha and fires HA events on fresh detections."""
+class PerchSentryCoordinator(DataUpdateCoordinator):
+    """Polls PerchSentry's /api/ha and fires HA events on fresh detections."""
 
     def __init__(self, hass: HomeAssistant, host: str, port: int) -> None:
         super().__init__(
@@ -47,7 +47,7 @@ class BirdBuddyCoordinator(DataUpdateCoordinator):
                     resp.raise_for_status()
                     data = await resp.json()
         except (aiohttp.ClientError, TimeoutError) as err:
-            raise UpdateFailed(f"BirdBuddy unreachable: {err}") from err
+            raise UpdateFailed(f"PerchSentry unreachable: {err}") from err
 
         self._maybe_fire_event(data)
         return data

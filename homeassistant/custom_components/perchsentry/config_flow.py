@@ -1,4 +1,4 @@
-"""Config flow for BirdBuddy."""
+"""Config flow for PerchSentry."""
 from __future__ import annotations
 
 from typing import Any
@@ -13,8 +13,8 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from .const import CONF_HOST, CONF_PORT, DEFAULT_HOST, DEFAULT_PORT, DOMAIN
 
 
-class BirdBuddyConfigFlow(ConfigFlow, domain=DOMAIN):
-    """Handle a config flow for BirdBuddy."""
+class PerchSentryConfigFlow(ConfigFlow, domain=DOMAIN):
+    """Handle a config flow for PerchSentry."""
 
     VERSION = 1
 
@@ -36,7 +36,7 @@ class BirdBuddyConfigFlow(ConfigFlow, domain=DOMAIN):
                 await self.async_set_unique_id(f"{host}:{port}")
                 self._abort_if_unique_id_configured()
                 return self.async_create_entry(
-                    title=f"BirdBuddy ({host})", data=user_input
+                    title=f"PerchSentry ({host})", data=user_input
                 )
 
         schema = vol.Schema(

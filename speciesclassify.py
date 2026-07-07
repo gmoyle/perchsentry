@@ -22,7 +22,7 @@ INPUT_SIZE = 480
 # reporting a nonsense sighting.
 NON_SPECIES = {"blank", "no cv result", "animal", "unknown", "vehicle"}
 
-log = logging.getLogger("birdbuddy")
+log = logging.getLogger("perchsentry")
 
 _session = None
 _labels = None

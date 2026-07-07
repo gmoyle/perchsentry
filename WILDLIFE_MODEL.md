@@ -9,7 +9,7 @@ back to the Raspberry Pi.
 
 ## 1. Objective
 
-The "BirdBuddy" system is a Raspberry Pi 5 bird camera with a **Hailo-8L** AI
+The "PerchSentry" system is a Raspberry Pi 5 bird camera with a **Hailo-8L** AI
 accelerator. Its current object detector (`yolov8s_h8l.hef`, COCO) only
 recognizes ~10 animal types — notably **not** squirrels, deer, foxes, raccoons,
 etc. We want to detect **any** animal in daytime footage.
@@ -136,7 +136,7 @@ affects detection accuracy.
   hundred images from **LILA.science** (Caltech Camera Traps / Snapshot
   Serengeti samples) or COCO images containing animals + outdoor scenes. Put
   them in `~/calib/`.
-- **Optional real-camera boost:** BirdBuddy's own footage improves accuracy for
+- **Optional real-camera boost:** PerchSentry's own footage improves accuracy for
   this exact scene. If provided a clip (e.g. a downloaded slow-mo file such as
   `slowmo_20260630_153447.mp4`), extract frames and add them to `~/calib/`:
   ```bash

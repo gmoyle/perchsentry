@@ -5,7 +5,7 @@ import subprocess
 from pathlib import Path
 from datetime import datetime
 
-log = logging.getLogger("birdbuddy")
+log = logging.getLogger("perchsentry")
 
 # Kernel thermal zone — millidegrees C, no subprocess needed for the reading.
 _THERMAL_ZONE = Path("/sys/class/thermal/thermal_zone0/temp")

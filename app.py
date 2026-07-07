@@ -23,11 +23,11 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(message)s",
     handlers=[
-        logging.FileHandler(Path(__file__).parent / "logs" / "birdbuddy.log"),
+        logging.FileHandler(Path(__file__).parent / "logs" / "perchsentry.log"),
         logging.StreamHandler(),
     ],
 )
-log = logging.getLogger("birdbuddy")
+log = logging.getLogger("perchsentry")
 
 app = Flask(__name__)
 import threading
@@ -84,10 +84,10 @@ def _maintenance_gate():
         return jsonify({"maintenance": True, "reason": _maintenance["reason"]}), 503
     html = (
         "<html><head><meta charset='utf-8'><meta http-equiv='refresh' content='30'>"
-        "<title>BirdBuddy — Maintenance</title></head>"
+        "<title>PerchSentry — Maintenance</title></head>"
         "<body style='background:#1a1a1a;color:#ccc;font-family:system-ui;"
         "text-align:center;padding:80px 20px'>"
-        "<h2>&#128736; BirdBuddy is doing nightly maintenance</h2>"
+        "<h2>&#128736; PerchSentry is doing nightly maintenance</h2>"
         "<p>" + (_maintenance["reason"] or "") + "</p>"
         "<p style='color:#666'>The live view and gallery will be back shortly.</p>"
         "</body></html>"
@@ -95,7 +95,7 @@ def _maintenance_gate():
     return Response(html, status=503, mimetype="text/html")
 
 Path("logs").mkdir(exist_ok=True)
-log.info("BirdBuddy starting")
+log.info("PerchSentry starting")
 _settings = cfg.load()
 _camera = Camera(cam_id=0)
 _camera1 = Camera(cam_id=1)
@@ -147,7 +147,7 @@ _cleaner.start()
 _backup.start()
 _slowmo_verifier.start()
 _temp_logger.start()
-log.info("Camera ready — http://birdbuddy.local:8080/")
+log.info("Camera ready — http://perchsentry.local:8080/")
 
 
 @app.route("/")
@@ -210,7 +210,7 @@ def post_settings():
 
 
 CAPTURES_DIR = Path(__file__).parent / "captures"
-LOG_FILE = Path(__file__).parent / "logs" / "birdbuddy.log"
+LOG_FILE = Path(__file__).parent / "logs" / "perchsentry.log"
 BIRD_RE = re.compile(r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}).*BIRD DETECTED: (.+?) \((\d+\.\d+)%\) → (motion_\S+\.jpg)")
 # Non-bird animals are logged on a distinct line so they never fall into the
 # bird stats/sightings (which are derived from BIRD DETECTED above).

@@ -1,0 +1,20 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "PerchSentry",
+        "description": "Enter the address of your PerchSentry camera.",
+        "data": {
+          "host": "Host",
+          "port": "Port"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Could not reach PerchSentry at that address. Check the host and port, and that PerchSentry is running."
+    },
+    "abort": {
+      "already_configured": "This PerchSentry is already configured."
+    }
+  }
+}

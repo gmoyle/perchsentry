@@ -1,4 +1,4 @@
-"""BirdBuddy camera — live MJPEG stream plus snapshot stills."""
+"""PerchSentry camera — live MJPEG stream plus snapshot stills."""
 from __future__ import annotations
 
 from homeassistant.components.camera import Camera
@@ -11,7 +11,7 @@ from homeassistant.helpers.aiohttp_client import (
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN
-from .entity import BirdBuddyEntity
+from .entity import PerchSentryEntity
 
 
 async def async_setup_entry(
@@ -20,16 +20,16 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     coordinator = hass.data[DOMAIN][entry.entry_id]
-    async_add_entities([BirdBuddyCamera(coordinator, entry.entry_id)])
+    async_add_entities([PerchSentryCamera(coordinator, entry.entry_id)])
 
 
-class BirdBuddyCamera(BirdBuddyEntity, Camera):
-    """A camera entity backed by BirdBuddy's MJPEG stream and /snapshot."""
+class PerchSentryCamera(PerchSentryEntity, Camera):
+    """A camera entity backed by PerchSentry's MJPEG stream and /snapshot."""
 
     _attr_name = "Camera"
 
     def __init__(self, coordinator, entry_id: str) -> None:
-        BirdBuddyEntity.__init__(self, coordinator, entry_id)
+        PerchSentryEntity.__init__(self, coordinator, entry_id)
         Camera.__init__(self)
         self._attr_unique_id = f"{entry_id}_camera"
         self._mjpeg_url = f"{coordinator.base_url}/stream"

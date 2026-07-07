@@ -11,7 +11,7 @@ DEFAULTS = {
     "motion_threshold": 25,
     "motion_min_pixels": 500,
     "motion_cooldown": 3,
-    "ntfy_url": "http://jetson.local:8088/birdbuddy",
+    "ntfy_url": "http://jetson.local:8088/perchsentry",
     "ntfy_user": "",
     "ntfy_pass": "",
     "timelapse_interval": 0,       # minutes between frames, 0 = disabled

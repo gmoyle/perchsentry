@@ -10,7 +10,7 @@ from daynight import is_daytime
 TIMELAPSE_DIR = Path(__file__).parent / "timelapse"
 TIMELAPSE_DIR.mkdir(exist_ok=True)
 
-log = logging.getLogger("birdbuddy")
+log = logging.getLogger("perchsentry")
 
 
 class TimelapseCapturer:

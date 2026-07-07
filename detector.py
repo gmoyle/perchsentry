@@ -22,7 +22,7 @@ CAPTURES_DIR.mkdir(exist_ok=True)
 # captures during this window.
 STARTUP_GRACE_SECS = 3.0
 
-log = logging.getLogger("birdbuddy")
+log = logging.getLogger("perchsentry")
 
 
 def notify(species, confidence, settings):
@@ -31,9 +31,9 @@ def notify(species, confidence, settings):
         return
     try:
         headers = {
-            "Title": "BirdBuddy",
+            "Title": "PerchSentry",
             "Tags": "bird",
-            "Actions": "view, View capture, http://birdbuddy.local:8080/, clear=true",
+            "Actions": "view, View capture, http://perchsentry.local:8080/, clear=true",
         }
         user = settings.get("ntfy_user", "").strip()
         passwd = settings.get("ntfy_pass", "").strip()

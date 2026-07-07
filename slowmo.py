@@ -35,7 +35,7 @@ PLAYBACK_FPS = 25       # output fps → 4.8× slowdown
 SLOWMO_SIZE = (616, 462)
 FRAME_DURATION_US = 1_000_000 // CAPTURE_FPS   # 8333µs per frame
 
-log = logging.getLogger("birdbuddy")
+log = logging.getLogger("perchsentry")
 
 
 def is_hummingbird(species):

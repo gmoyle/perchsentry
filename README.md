@@ -1,4 +1,4 @@
-# BirdBuddy
+# PerchSentry
 
 A backyard bird camera that runs entirely on a Raspberry Pi. It watches the feeder, notices when something turns up, works out what that something is, and keeps the frames worth keeping. No cloud account, no monthly fee, no phone app — just a Pi by the window and a web page you can pull up from anywhere on your network.
 

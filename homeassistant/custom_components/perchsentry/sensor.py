@@ -1,4 +1,4 @@
-"""BirdBuddy sensors."""
+"""PerchSentry sensors."""
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -16,11 +16,11 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN
-from .entity import BirdBuddyEntity
+from .entity import PerchSentryEntity
 
 
 @dataclass(frozen=True, kw_only=True)
-class BirdBuddySensorDescription(SensorEntityDescription):
+class PerchSentrySensorDescription(SensorEntityDescription):
     """A sensor description with a value extractor over the /api/ha payload."""
 
     value_fn: Callable[[dict], object]
@@ -31,20 +31,20 @@ def _confidence_pct(data: dict):
     return round(conf * 100, 1) if conf is not None else None
 
 
-SENSORS: tuple[BirdBuddySensorDescription, ...] = (
-    BirdBuddySensorDescription(
+SENSORS: tuple[PerchSentrySensorDescription, ...] = (
+    PerchSentrySensorDescription(
         key="last_species",
         name="Last bird",
         icon="mdi:bird",
         value_fn=lambda d: d.get("last_species"),
     ),
-    BirdBuddySensorDescription(
+    PerchSentrySensorDescription(
         key="last_animal",
         name="Last animal",
         icon="mdi:paw",
         value_fn=lambda d: d.get("last_animal"),
     ),
-    BirdBuddySensorDescription(
+    PerchSentrySensorDescription(
         key="last_confidence",
         name="Last confidence",
         native_unit_of_measurement=PERCENTAGE,
@@ -52,21 +52,21 @@ SENSORS: tuple[BirdBuddySensorDescription, ...] = (
         icon="mdi:target",
         value_fn=_confidence_pct,
     ),
-    BirdBuddySensorDescription(
+    PerchSentrySensorDescription(
         key="today_sightings",
         name="Today's sightings",
         state_class=SensorStateClass.TOTAL,
         icon="mdi:counter",
         value_fn=lambda d: d.get("today_sightings"),
     ),
-    BirdBuddySensorDescription(
+    PerchSentrySensorDescription(
         key="animals_today",
         name="Animals today",
         state_class=SensorStateClass.TOTAL,
         icon="mdi:paw",
         value_fn=lambda d: d.get("animals_today"),
     ),
-    BirdBuddySensorDescription(
+    PerchSentrySensorDescription(
         key="cpu_temp_c",
         name="CPU temperature",
         device_class=SensorDeviceClass.TEMPERATURE,
@@ -84,14 +84,14 @@ async def async_setup_entry(
 ) -> None:
     coordinator = hass.data[DOMAIN][entry.entry_id]
     async_add_entities(
-        BirdBuddySensor(coordinator, entry.entry_id, desc) for desc in SENSORS
+        PerchSentrySensor(coordinator, entry.entry_id, desc) for desc in SENSORS
     )
 
 
-class BirdBuddySensor(BirdBuddyEntity, SensorEntity):
+class PerchSentrySensor(PerchSentryEntity, SensorEntity):
     """A single value pulled from the /api/ha payload."""
 
-    entity_description: BirdBuddySensorDescription
+    entity_description: PerchSentrySensorDescription
 
     def __init__(self, coordinator, entry_id, description) -> None:
         super().__init__(coordinator, entry_id)
