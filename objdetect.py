@@ -1,5 +1,10 @@
 """
-Object detection pre-filter using Hailo-8L NPU (YOLOv8).
+Object detection pre-filter using the Hailo-8L NPU.
+
+Prefers a MegaDetector (YOLOv9-c, class-agnostic animal/person/vehicle) HEF when
+present (models/ dir first, then /usr/share/hailo-models/), so daytime wildlife
+beyond COCO's handful of classes (squirrels, deer, foxes, raccoons, ...) is
+detected. Falls back to the COCO YOLOv8s HEF, then to TFLite on CPU.
 
 Runs on the Hailo NPU for near-zero CPU overhead. Falls back to TFLite on CPU
 if no HEF model is found. Skips classification entirely if no animal detected.
@@ -9,7 +14,7 @@ x1,y1,x2,y2) so callers can classify a bird-centered crop instead of the full
 frame — the bird fills the classifier input instead of ~5% of it, which
 dramatically improves species confidence.
 
-HEF model sourced from hailo-tappas-core: /usr/share/hailo-models/yolov8s_h8l.hef
+COCO fallback HEF sourced from hailo-tappas-core: /usr/share/hailo-models/yolov8s_h8l.hef
 """
 
 import logging
@@ -20,12 +25,25 @@ from PIL import Image
 
 log = logging.getLogger("birdbuddy")
 
+# A MegaDetector HEF takes priority over the COCO fallbacks below. It is
+# class-agnostic (animal/person/vehicle) so it catches wildlife COCO never
+# learned (squirrels, deer, foxes, ...). Checked in the app's models/ dir first
+# (drop-in override), then the shared system model dir alongside the COCO HEF.
+MEGADETECTOR_HEFS = [
+    Path(__file__).parent / "models" / "megadetector_h8l.hef",
+    Path("/usr/share/hailo-models/megadetector_h8l.hef"),
+]
+
 HEF_SEARCH_PATHS = [
     "/usr/share/hailo-models/yolov8s_h8l.hef",
     "/usr/share/hailo-models/yolov8m_h8l.hef",
     "/usr/share/hailo-models/yolov8n.hef",
     "/usr/share/hailo-models/yolov8s.hef",
 ]
+
+# MegaDetector class index -> label. Only class 0 (animal) is of interest; person
+# and vehicle are intentionally ignored so passers-by never trigger a capture.
+MEGADETECTOR_LABELS = {0: "animal"}
 
 TFLITE_MODEL = Path(__file__).parent / "models" / "detect.tflite"
 TFLITE_LABELS = Path(__file__).parent / "models" / "labelmap.txt"
@@ -38,6 +56,8 @@ _COCO_LABELS = {
 }
 
 _backend = None
+# "megadetector" or "coco" -- selects output class map + preprocessing.
+_model_kind = None
 _hailo_infer = None
 # Keeps the VDevice (and HEF) alive for the process lifetime. Without this,
 # `target` in _init_hailo is garbage-collected when the function returns —
@@ -52,6 +72,9 @@ _infer_lock = threading.Lock()
 
 
 def _find_hef():
+    for p in MEGADETECTOR_HEFS:
+        if p.exists():
+            return str(p)
     for p in HEF_SEARCH_PATHS:
         if Path(p).exists():
             return p
@@ -62,8 +85,23 @@ def _find_hef():
     return None
 
 
+def _letterbox(img, size, pad=114):
+    """Resize `img` (PIL RGB) into a `size`x`size` square, preserving aspect
+    ratio and padding the remainder with `pad`. Returns (uint8 HWC array, scale,
+    pad_x, pad_y) so detections can be mapped back to the original image."""
+    orig_w, orig_h = img.size
+    scale = min(size / orig_w, size / orig_h)
+    new_w, new_h = int(round(orig_w * scale)), int(round(orig_h * scale))
+    canvas = Image.new("RGB", (size, size), (pad, pad, pad))
+    pad_x, pad_y = (size - new_w) // 2, (size - new_h) // 2
+    canvas.paste(img.resize((new_w, new_h)), (pad_x, pad_y))
+    # np.array (not asarray) forces a writeable copy — HailoRT's infer() rejects
+    # the read-only buffer that PIL images expose.
+    return np.array(canvas, dtype=np.uint8), scale, pad_x, pad_y
+
+
 def _init_hailo(hef_path):
-    global _hailo_infer, _hailo_keepalive
+    global _hailo_infer, _hailo_keepalive, _model_kind
     try:
         from hailo_platform import (HEF, VDevice, HailoStreamInterface,
             InferVStreams, ConfigureParams, InputVStreamParams,
@@ -79,17 +117,30 @@ def _init_hailo(hef_path):
         output_vstreams_params = OutputVStreamParams.make(network_group, format_type=FormatType.FLOAT32)
         input_info = hef.get_input_vstream_infos()[0]
         h, w = input_info.shape[0], input_info.shape[1]
+        kind = "megadetector" if "megadetector" in Path(hef_path).name.lower() else "coco"
 
         def infer(image_path):
-            img = np.array(Image.open(image_path).convert("RGB").resize((w, h)), dtype=np.uint8)
-            data = {input_info.name: np.expand_dims(img, 0)}
+            img = Image.open(image_path).convert("RGB")
+            orig_w, orig_h = img.size
+            if kind == "megadetector":
+                # MegaDetector expects letterbox+pad-114; keep the transform so
+                # output boxes can be un-letterboxed back to the original frame.
+                arr, scale, pad_x, pad_y = _letterbox(img, w)
+                meta = {"scale": scale, "pad_x": pad_x, "pad_y": pad_y,
+                        "orig_w": orig_w, "orig_h": orig_h, "size": w}
+            else:
+                # COCO YOLOv8 path uses a plain (stretch) resize, as before.
+                arr = np.array(img.resize((w, h)), dtype=np.uint8)
+                meta = None
+            data = {input_info.name: np.expand_dims(arr, 0)}
             with InferVStreams(network_group, input_vstreams_params, output_vstreams_params) as pipeline:
                 with network_group.activate(network_group_params):
-                    return pipeline.infer(data)
+                    return pipeline.infer(data), meta
 
+        _model_kind = kind
         _hailo_keepalive = (target, hef)
         _hailo_infer = (infer, w, h)
-        log.info(f"Hailo-8L object detection ready: {Path(hef_path).name} ({w}x{h})")
+        log.info(f"Hailo-8L object detection ready: {Path(hef_path).name} ({w}x{h}) [{kind}]")
         return True
     except Exception as e:
         log.warning(f"Hailo init failed: {e}")
@@ -125,41 +176,63 @@ def _init():
         _backend = "passthrough"
 
 
+def _label_for(cls_id):
+    """Map a class index to an animal label, or None to ignore it. Depends on
+    which model is loaded (MegaDetector's 3 classes vs COCO's 80)."""
+    if _model_kind == "megadetector":
+        return MEGADETECTOR_LABELS.get(cls_id)  # None for person(1)/vehicle(2)
+    label = _COCO_LABELS.get(cls_id, "")
+    return label if label in ANIMAL_CLASSES else None
+
+
+def _map_box(x1, y1, x2, y2, meta):
+    """Convert an NMS box (normalized 0-1 in the network's square input) to a
+    normalized (x1,y1,x2,y2) box in the ORIGINAL image. With `meta` (letterbox)
+    the padding/scale is undone; without it (plain resize) coords map directly."""
+    def clamp(v):
+        return max(0.0, min(1.0, v))
+    if meta is None:
+        return (clamp(x1), clamp(y1), clamp(x2), clamp(y2))
+    size, scale = meta["size"], meta["scale"]
+    ow, oh = meta["orig_w"], meta["orig_h"]
+    px, py = meta["pad_x"], meta["pad_y"]
+    return (clamp((x1 * size - px) / scale / ow),
+            clamp((y1 * size - py) / scale / oh),
+            clamp((x2 * size - px) / scale / ow),
+            clamp((y2 * size - py) / scale / oh))
+
+
 def _hailo_boxes(image_path, min_confidence):
     """All animal detections as [{'label', 'score', 'box': (x1,y1,x2,y2) 0-1}]."""
     infer_fn, w, h = _hailo_infer
     with _infer_lock:
-        outputs = infer_fn(image_path)
+        outputs, meta = infer_fn(image_path)
     dets = []
     for key, tensor in outputs.items():
         arr = tensor[0]
-        # NMS-postprocessed HEF (yolov8s_h8l): a list with one entry per
-        # COCO class, each an (N, 5) array of [y1, x1, y2, x2, score],
-        # coordinates normalized 0-1.
+        # NMS-postprocessed HEF (yolov8s_h8l / megadetector): a list with one
+        # entry per class, each an (N, 5) array of [y1, x1, y2, x2, score],
+        # coordinates normalized 0-1 in the (letterboxed) model input.
         if isinstance(arr, list):
             for cls_id, cls_dets in enumerate(arr):
-                label = _COCO_LABELS.get(cls_id, "")
-                if label not in ANIMAL_CLASSES:
+                label = _label_for(cls_id)
+                if label is None:
                     continue
                 for det in cls_dets:
                     score = float(det[4])
                     if score >= min_confidence:
-                        y1, x1, y2, x2 = (float(det[0]), float(det[1]),
-                                          float(det[2]), float(det[3]))
-                        dets.append({
-                            "label": label, "score": score,
-                            "box": (max(0.0, x1), max(0.0, y1),
-                                    min(1.0, x2), min(1.0, y2)),
-                        })
+                        box = _map_box(float(det[1]), float(det[0]),
+                                       float(det[3]), float(det[2]), meta)
+                        dets.append({"label": label, "score": score, "box": box})
         # Raw (no-NMS) HEF: flat (N, 6) array of [x1, y1, x2, y2, conf, cls]
-        # in model-input pixels.
+        # in model-input pixels (COCO fallback only).
         elif hasattr(arr, "ndim") and arr.ndim == 2:
             for det in arr:
                 if len(det) >= 6:
                     score = float(det[4])
                     cls_id = int(det[5])
-                    label = _COCO_LABELS.get(cls_id, "")
-                    if score >= min_confidence and label in ANIMAL_CLASSES:
+                    label = _label_for(cls_id)
+                    if score >= min_confidence and label is not None:
                         dets.append({
                             "label": label, "score": score,
                             "box": (max(0.0, float(det[0]) / w), max(0.0, float(det[1]) / h),
