@@ -59,8 +59,9 @@ Host setup (the camera service, plus a couple of things that need root, like the
 
 ## What it doesn't do
 
-- **No night vision.** The camera has no infrared, and honestly a garden at night is a black rectangle, so the whole system politely pauses after dark and picks back up at dawn. This is a choice, not a bug.
-- **It won't name a squirrel to the subspecies.** The wildlife classifier is coming (see [`WILDLIFE_CLASSIFIER.md`](WILDLIFE_CLASSIFIER.md)); until it lands, non-bird visitors are logged as a generic "animal."
+- **No night vision yet.** The current camera has no infrared, and honestly a garden at night is a black rectangle, so the whole system politely pauses after dark and picks back up at dawn. This is a choice, not a bug.
+- **Maybe later: a second night camera.** The Raspberry Pi 5 supports two cameras, so I am considering adding a second NoIR camera and switching to it after dark. If that happens, the night mode should capture all animals and humans instead of only daylight visitors.
+- **It won't name every animal perfectly.** SpeciesNet gives the Animals track a real species guess, but it is still a general wildlife classifier, not a local expert with perfect knowledge of every backyard visitor.
 - **It's a personal project, not a product.** It runs happily on my windowsill; your mileage, your feeder, and your local birds will vary.
 
 ## Credits
