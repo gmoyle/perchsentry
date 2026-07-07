@@ -579,6 +579,54 @@ def api_temp_history():
     return jsonify({"hours": hours, "points": temp_history(hours)})
 
 
+@app.route("/snapshot")
+def snapshot():
+    """A single fresh JPEG frame — for the Home Assistant camera's stills, and
+    handy for any dashboard that wants a poster image without opening the MJPEG
+    stream. Grabs a frame directly, so it works even when the encode loop is
+    idling because nobody has the live stream open."""
+    data = _camera.snapshot_jpeg()
+    if not data:
+        abort(503)
+    return Response(data, mimetype="image/jpeg")
+
+
+@app.route("/api/ha")
+def api_ha():
+    """Consolidated state for the Home Assistant integration — latest detection,
+    today's counts, and device health in a single poll. Kept as a stable
+    contract so the integration doesn't have to fan out across several routes."""
+    st = _detector.get_status()
+    temp = read_temp()
+    deleted = _load_deleted()
+    today = datetime.now().date()
+    bird_today = sum(1 for e in _get_log_entries()
+                     if e["filename"] not in deleted and e["dt"].date() == today)
+    animal_today = sum(1 for e in _get_animal_entries()
+                       if e["filename"] not in deleted and e["dt"].date() == today)
+    ev = st.get("last_event")
+    is_bird = ev == "bird_detected"
+    is_animal = ev == "animal_detected"
+    fn = st.get("last_filename")
+    return jsonify({
+        "online": True,
+        "last_event": ev,
+        "last_event_at": st.get("last_event_at"),
+        "last_species": st.get("last_species") if is_bird else None,
+        "last_animal": st.get("last_species") if is_animal else None,
+        "last_confidence": st.get("last_confidence"),
+        "last_image": fn,
+        "last_image_url": f"/captures/{fn}" if fn else None,
+        "today_sightings": bird_today,
+        "animals_today": animal_today,
+        "cpu_temp_c": temp.get("temp_c"),
+        "cpu_temp_status": temp.get("status"),
+        "motion_active": bool(st.get("motion_crossed")),
+        "snapshot_url": "/snapshot",
+        "stream_url": "/stream",
+    })
+
+
 @app.route("/api/backup", methods=["POST"])
 def api_backup():
     dest = _settings.get("backup_path", "").strip()

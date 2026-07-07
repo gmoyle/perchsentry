@@ -144,6 +144,24 @@ class Camera:
         with self.cam_lock:
             self.cam.capture_file(str(path))
 
+    def snapshot_jpeg(self, quality=80):
+        """Grab one fresh frame and return it as JPEG bytes, regardless of
+        whether the encode loop is idling (used by the /snapshot endpoint and
+        the Home Assistant camera for stills)."""
+        if not self.available:
+            return None
+        try:
+            with self.cam_lock:
+                arr = self.cam.capture_array("main")
+        except Exception:
+            # e.g. during a slow-mo reconfigure — fall back to the last encoded
+            # frame if there is one.
+            return get_latest_frame(self.cam_id) or None
+        img = Image.fromarray(arr[:, :, ::-1], mode="RGB")
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=quality)
+        return buf.getvalue()
+
     def capture_lores(self):
         if not self.available:
             return np.zeros((240, 320), dtype=np.int16)
