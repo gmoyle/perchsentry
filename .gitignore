@@ -6,7 +6,9 @@ thumbnails/
 timelapse/
 slowmo/
 logs/
-models/
+models/*
+# Ship the compiled MegaDetector HEF (MIT-licensed) so users needn't rebuild it.
+!models/megadetector_h8l.hef
 settings.json
 hailort.log
 *.log

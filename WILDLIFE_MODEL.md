@@ -20,6 +20,19 @@ compact MegaDetector to a Hailo `.hef` that will run on this Pi. Naming the
 species (squirrel vs deer) is a *later* project step and is out of scope here —
 just get "animal" detection working.
 
+## License & prebuilt download
+
+The variant used, **MDV6-yolov9-c, is MIT-licensed**, so the compiled model is
+redistributed with this repo — **you do not need to rebuild it**. Grab it from:
+
+    models/megadetector_h8l.hef
+
+(committed in the repository). Attribution and the MIT notice are in
+[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md). The build steps below are
+only needed if you want to recompile (e.g. a newer model, a different input
+size, or your own calibration data). If you rebuild with a **YOLOv10** variant
+instead, note those are **AGPL-3.0**, not MIT.
+
 ## 2. Hard constraints (read first)
 
 - **Target device:** Raspberry Pi 5 + **Hailo-8L**, Hailo architecture name
