@@ -189,6 +189,30 @@
     </div>
 
     <div class="section">
+      <h3>Focus</h3>
+
+      <div class="setting">
+        <div>
+          <div class="setting-name">Mode</div>
+          <div class="setting-range">Auto / Manual</div>
+        </div>
+        <div class="setting-desc">
+          Auto lets the camera refocus on its own, which is fine most of the time. Manual locks focus at a fixed distance and stops the lens hunting — useful when your feeder sits at a known spot and autofocus keeps drifting off to the trees behind it.
+        </div>
+      </div>
+
+      <div class="setting">
+        <div>
+          <div class="setting-name">Position</div>
+          <div class="setting-range">Manual mode only</div>
+        </div>
+        <div class="setting-desc">
+          The fixed focus distance, in diopters (1 / metres). 0 is infinity, 1 is roughly 1&nbsp;m, 2 is about 0.5&nbsp;m, 4 is about 0.25&nbsp;m. Nudge it until the feeder looks sharp in the live view.
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
       <h3>Timelapse</h3>
 
       <div class="setting">
@@ -199,6 +223,62 @@
         <div class="setting-desc">
           How often to automatically save a timelapse frame. Set to 0 to disable. A 5-minute interval over a full day produces 288 frames — enough for a smooth timelapse video. Use the Gallery page to build the video once you've collected frames.
         </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <h3>Fan (Recording)</h3>
+
+      <div class="setting">
+        <div>
+          <div class="setting-name">Mode during slow-mo</div>
+          <div class="setting-range">Normal / Quiet / Silent</div>
+        </div>
+        <div class="setting-desc">
+          Controls the cooling fan while a slow-mo clip records, so its high-pitched whine doesn't end up in the audio if you've wired in a microphone. <strong>Normal</strong> leaves the fan on its usual automatic thermal control. <strong>Quiet</strong> drops it to a low steady speed — a soft hum instead of a sudden spin-up. <strong>Silent</strong> switches it off for the few seconds of the burst, then the system turns it straight back on. The processor is always protected by its own firmware temperature limits, and a watchdog restores cooling early if things warm up mid-recording.
+        </div>
+      </div>
+
+      <div class="tip">
+        <strong>Only matters if you record audio.</strong> Slow-mo bursts last a few seconds, so even Silent barely moves the temperature. No microphone attached? Leave it on Normal.
+      </div>
+    </div>
+
+    <div class="section">
+      <h3>Animals (Non-Bird)</h3>
+
+      <div class="setting">
+        <div>
+          <div class="setting-name">Capture</div>
+          <div class="setting-range">On / Off</div>
+        </div>
+        <div class="setting-desc">
+          Keep photos of non-bird animals the detector spots — squirrels, deer, foxes, raccoons, cats, and the like. They're tracked separately from your bird sightings, so they never muddy the bird stats. Turn off if you only care about birds.
+        </div>
+      </div>
+
+      <div class="setting">
+        <div>
+          <div class="setting-name">Slow-mo record</div>
+          <div class="setting-range">On / Off</div>
+        </div>
+        <div class="setting-desc">
+          Also grab a slow-motion clip when an animal shows up, the same way a bird triggers one. Turn off if you just want stills of passing critters.
+        </div>
+      </div>
+
+      <div class="setting">
+        <div>
+          <div class="setting-name">Notify</div>
+          <div class="setting-range">On / Off</div>
+        </div>
+        <div class="setting-desc">
+          Send a phone notification when an animal is detected (needs a notification URL configured). Off by default — a busy yard can get chatty.
+        </div>
+      </div>
+
+      <div class="tip">
+        <strong>Daytime only.</strong> Animal detection runs on the same daylight frames as bird detection. There's no night vision, so nocturnal visitors slip by after dark.
       </div>
     </div>
 
