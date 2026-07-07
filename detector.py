@@ -9,6 +9,7 @@ from pathlib import Path
 from PIL import Image
 
 from classify import load_interpreter, load_labels, classify_image
+import speciesclassify
 from slowmo import SlowMoCapture
 from daynight import is_daytime
 from objdetect import analyze_frame
@@ -97,6 +98,16 @@ class MotionDetector:
         self._stop_event = threading.Event()
         self._interp = load_interpreter()
         self._labels = load_labels()
+        # SpeciesNet names non-bird animals on the CPU. It's a 214 MB ONNX, so
+        # degrade gracefully if it's missing — animals just log generically then.
+        try:
+            self._species_session = speciesclassify.load_session()
+            self._species_labels = speciesclassify.load_labels()
+            log.info("SpeciesNet wildlife classifier loaded")
+        except Exception as e:
+            self._species_session = None
+            self._species_labels = None
+            log.warning(f"SpeciesNet unavailable ({e}); animals logged generically")
         self._slowmo = SlowMoCapture(camera, get_settings)
         self._last_saved_path = None
         self._started_at = 0
@@ -110,6 +121,7 @@ class MotionDetector:
             "last_event": "idle",
             "last_species": None,
             "last_confidence": None,
+            "last_filename": None,
             "last_event_at": 0,
             "updated_at": 0,
         }
@@ -122,6 +134,28 @@ class MotionDetector:
     def get_status(self):
         with self._status_lock:
             return dict(self._status)
+
+    def _name_species(self, path, box, min_conf):
+        """Run SpeciesNet on the animal crop MegaDetector found and return
+        (common_name, confidence), or None to keep the generic 'animal' label
+        (classifier absent, error, low confidence, or a non-species output like
+        'blank'/'human')."""
+        if self._species_session is None:
+            return None
+        crop = crop_to_box(path, box) if box else None
+        src = crop or path
+        try:
+            r = speciesclassify.classify_image(src, self._species_session, self._species_labels)
+        except Exception as e:
+            log.warning(f"Species classify failed: {e}")
+            return None
+        finally:
+            if crop:
+                crop.unlink(missing_ok=True)
+        if r["confidence"] < min_conf or r["species"] in speciesclassify.NON_SPECIES:
+            log.debug(f"SpeciesNet inconclusive: {r['species']} ({r['confidence']:.1%})")
+            return None
+        return r["species"], r["confidence"]
 
     def start(self):
         self._stop_event.clear()
@@ -255,6 +289,7 @@ class MotionDetector:
                         self._set_status(
                             last_event="bird_detected", last_event_at=now,
                             last_species=species, last_confidence=confidence,
+                            last_filename=path.name,
                         )
 
                         if not self._slowmo.is_active():
@@ -277,11 +312,23 @@ class MotionDetector:
                         animal = det.get("label")
                         if animal and animal != "bird" and s.get("capture_animals", True):
                             score = det.get("score", 0.0)
+                            # Name the species with SpeciesNet on the same crop;
+                            # fall back to the generic "animal" label if it's
+                            # unsure. This confidence is the classifier's, which
+                            # is a different (and more meaningful) number than
+                            # the detector's box score it replaces.
+                            named = self._name_species(
+                                path, det.get("box"),
+                                s.get("species_confidence", 50) / 100.0,
+                            )
+                            if named:
+                                animal, score = named
                             log.info(f"ANIMAL DETECTED: {animal} ({score:.1%}) → {path.name}")
                             self._last_saved_path = path
                             self._set_status(
                                 last_event="animal_detected", last_event_at=now,
                                 last_species=animal, last_confidence=score,
+                                last_filename=path.name,
                             )
                             if not self._slowmo.is_active() and s.get("slowmo_animals", True):
                                 if self._clients_active():
