@@ -53,16 +53,27 @@
     .card .val.warn { color: #ff9800; }
     .card .val.danger { color: #f44336; }
     .card .sub { font-size: 0.65rem; color: #ff9800; margin-top: 4px; min-height: 0.8rem; }
-  </style>
+      /* --- responsive top nav (icons-only, second row on mobile) --- */
+    .topnav { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .topnav .nav-icon { display: none; }
+    @media (max-width: 600px) {
+      header { flex-wrap: wrap; }
+      .topnav { flex-basis: 100%; margin-top: 8px; }
+      .topnav .nav-label { display: none; }
+      .topnav .nav-icon { display: inline; }
+    }
+</style>
 </head>
 <body>
   <header>
     <h1>Statistics</h1>
-    <a href="/gallery" class="back-btn">🖼 Gallery</a>
-    <a href="/slowmo-page" class="back-btn">🎞 Slow-Mo</a>
-    <a href="/stats" class="back-btn" style="border-color:#4caf50;color:#4caf50">📊 Stats</a>
-    <a href="/help" class="back-btn">? Help</a>
-    <a href="/" class="back-btn">← Live</a>
+    <nav class="topnav">
+      <a href="/gallery" class="back-btn"><span class="nav-icon">🖼</span><span class="nav-label">Gallery</span></a>
+      <a href="/slowmo-page" class="back-btn"><span class="nav-icon">🎞</span><span class="nav-label">Slow-Mo</span></a>
+      <a href="/stats" class="back-btn" style="border-color:#4caf50;color:#4caf50"><span class="nav-icon">📊</span><span class="nav-label">Stats</span></a>
+      <a href="/help" class="back-btn"><span class="nav-icon">?</span><span class="nav-label">Help</span></a>
+      <a href="/" class="back-btn"><span class="nav-icon">🏠</span><span class="nav-label">Live</span></a>
+    </nav>
   </header>
 
   <div class="summary-cards" id="summaryCards">
