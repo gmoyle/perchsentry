@@ -501,7 +501,9 @@
     font-weight: 600;
     color: #999;
   }
-  #motion-panel .mp-event.bird_detected { color: #4caf50; }
+  #motion-panel .mp-event.bird_detected,
+  #motion-panel .mp-event.animal_detected { color: #4caf50; }
+  #motion-panel .mp-event.presence { color: #29b6f6; }
   #motion-panel .mp-event.low_confidence,
   #motion-panel .mp-event.no_bird,
   #motion-panel .mp-event.no_animal { color: #ff9800; }
@@ -533,7 +535,7 @@
 
   <div class="stream-pane">
     <div id="motion-panel">
-      <div class="mp-row"><span>Motion</span><span id="mp-px">0 / 0px</span></div>
+      <div class="mp-row"><span>NPU</span><span id="mp-px">watching…</span></div>
       <div class="mp-bar-track"><div class="mp-bar-fill" id="mp-bar"></div></div>
       <div class="mp-row"><span>Last</span><span class="mp-event" id="mp-event">idle</span></div>
     </div>
@@ -1064,34 +1066,43 @@
     }, 1000);
   })();
 
-  // Live motion-detection feedback panel
+  // Live NPU presence-detection feedback panel. Detection is continuous —
+  // there's no motion threshold to tune; "an animal is in frame" IS the
+  // trigger, so this just shows what the NPU is currently seeing.
   (function() {
     const pxEl = document.getElementById('mp-px');
     const barEl = document.getElementById('mp-bar');
     const eventEl = document.getElementById('mp-event');
 
+    const IDLE_EVENTS = new Set(['watching', 'idle', 'warming_up', 'night_pause',
+                                  'slowmo_capturing', 'no_frame']);
+
     const EVENT_LABELS = {
       idle: 'idle',
+      watching: 'watching',
+      presence: 'animal in frame…',
       warming_up: 'warming up',
       night_pause: 'night — detection paused',
+      slowmo_capturing: 'recording slow-mo',
+      no_frame: 'no camera frame',
       duplicate: 'duplicate frame skipped',
-      no_animal: 'no animal (NPU pre-filter)',
+      no_animal: 'lost it — nothing on saved frame',
       no_bird: 'not a bird',
-      low_confidence: 'below confidence',
+      animal_detected: 'ANIMAL DETECTED',
       bird_detected: 'BIRD DETECTED',
     };
 
     function render(d) {
-      pxEl.textContent = `${d.changed_px} / ${d.min_pixels}px`;
-      const pct = d.min_pixels > 0 ? Math.min(100, (d.changed_px / d.min_pixels) * 100) : 0;
-      barEl.style.width = pct + '%';
-      barEl.classList.toggle('crossed', d.motion_crossed);
+      const scorePct = Math.round((d.detect_score || 0) * 100);
+      pxEl.textContent = d.detect_label ? `${d.detect_label} ${scorePct}%` : `${scorePct}%`;
+      barEl.style.width = Math.min(100, scorePct) + '%';
+      barEl.classList.toggle('crossed', !IDLE_EVENTS.has(d.last_event));
 
       let label = EVENT_LABELS[d.last_event] || d.last_event;
       if (d.last_event === 'bird_detected' && d.last_species) {
         label = `${d.last_species.split(' ').pop()} ${(d.last_confidence * 100).toFixed(0)}%`;
-      } else if (d.last_event === 'low_confidence' && d.last_species) {
-        label = `${d.last_species.split(' ').pop()} ${(d.last_confidence * 100).toFixed(0)}% (too low)`;
+      } else if (d.last_event === 'animal_detected' && d.last_species) {
+        label = `${d.last_species} ${(d.last_confidence * 100).toFixed(0)}%`;
       }
       eventEl.textContent = label;
       eventEl.className = 'mp-event ' + d.last_event;

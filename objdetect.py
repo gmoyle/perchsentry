@@ -1,13 +1,15 @@
 """
-Object detection pre-filter using the Hailo-8L NPU.
+Object detection using the Hailo-8L NPU.
 
 Prefers a MegaDetector (YOLOv9-c, class-agnostic animal/person/vehicle) HEF when
 present (models/ dir first, then /usr/share/hailo-models/), so daytime wildlife
 beyond COCO's handful of classes (squirrels, deer, foxes, raccoons, ...) is
 detected. Falls back to the COCO YOLOv8s HEF, then to TFLite on CPU.
 
-Runs on the Hailo NPU for near-zero CPU overhead. Falls back to TFLite on CPU
-if no HEF model is found. Skips classification entirely if no animal detected.
+analyze_frame() accepts either a file path OR an already-decoded PIL.Image —
+the continuous presence-detection poll in detector.py passes an in-memory
+frame straight from the camera (no JPEG encode/decode round-trip), while the
+post-capture re-check and the nightly verifiers pass a saved file path.
 
 analyze_frame() additionally returns the best animal bounding box (normalized
 x1,y1,x2,y2) so callers can classify a bird-centered crop instead of the full
@@ -66,8 +68,9 @@ _hailo_infer = None
 _hailo_keepalive = None
 _tflite_interp = None
 _tflite_labels = None
-# The detector thread and the nightly slow-mo verifier share this pipeline;
-# InferVStreams on a single network group is not safe to enter concurrently.
+# The continuous presence-detection poll, the post-capture re-check, and the
+# nightly verifiers all share this pipeline; InferVStreams on a single network
+# group is not safe to enter concurrently.
 _infer_lock = threading.Lock()
 
 # NPU health. The Hailo card can drop off the PCIe bus (fw-control failures,
@@ -85,7 +88,7 @@ _last_error = None
 
 
 def get_health():
-    """Return NPU pre-filter health for status/UI/alerting.
+    """Return NPU health for status/UI/alerting.
 
     backend: 'hailo' | 'tflite' | 'passthrough' | None (uninitialized)
     healthy: False once the Hailo backend has failed inference repeatedly.
@@ -104,7 +107,7 @@ def _note_infer_ok():
     global _consecutive_failures, _npu_dead, _last_error
     if _consecutive_failures or _npu_dead:
         if _npu_dead:
-            log.info("Hailo NPU pre-filter recovered — resuming animal filtering")
+            log.info("Hailo NPU recovered — resuming detection")
         _consecutive_failures = 0
         _npu_dead = False
         _last_error = None
@@ -117,7 +120,7 @@ def _note_infer_fail(exc):
     if not _npu_dead and _consecutive_failures >= _MAX_CONSECUTIVE_FAILURES:
         _npu_dead = True
         log.error(
-            "Hailo NPU pre-filter DEAD after %d consecutive inference failures "
+            "Hailo NPU DEAD after %d consecutive inference failures "
             "(%s); failing CLOSED — captures paused until the NPU recovers. "
             "The card likely dropped off the PCIe bus; a power-cycle or PCIe "
             "reset is needed.",
@@ -165,6 +168,13 @@ def _letterbox(img, size, pad=114):
     return np.array(canvas, dtype=np.uint8), scale, pad_x, pad_y
 
 
+def _as_pil(image_source):
+    """Accept either a path/str/Path or an already-decoded PIL.Image."""
+    if isinstance(image_source, Image.Image):
+        return image_source if image_source.mode == "RGB" else image_source.convert("RGB")
+    return Image.open(image_source).convert("RGB")
+
+
 def _init_hailo(hef_path):
     global _hailo_infer, _hailo_keepalive, _model_kind
     try:
@@ -184,8 +194,8 @@ def _init_hailo(hef_path):
         h, w = input_info.shape[0], input_info.shape[1]
         kind = "megadetector" if "megadetector" in Path(hef_path).name.lower() else "coco"
 
-        def infer(image_path):
-            img = Image.open(image_path).convert("RGB")
+        def infer(image_source):
+            img = _as_pil(image_source)
             orig_w, orig_h = img.size
             if kind == "megadetector":
                 # MegaDetector expects letterbox+pad-114; keep the transform so
@@ -237,7 +247,7 @@ def _init():
     elif _init_tflite():
         _backend = "tflite"
     else:
-        log.info("No object detection model available — pre-filter disabled")
+        log.info("No object detection model available — detection disabled")
         _backend = "passthrough"
 
 
@@ -267,11 +277,11 @@ def _map_box(x1, y1, x2, y2, meta):
             clamp((y2 * size - py) / scale / oh))
 
 
-def _hailo_boxes(image_path, min_confidence):
+def _hailo_boxes(image_source, min_confidence):
     """All animal detections as [{'label', 'score', 'box': (x1,y1,x2,y2) 0-1}]."""
     infer_fn, w, h = _hailo_infer
     with _infer_lock:
-        outputs, meta = infer_fn(image_path)
+        outputs, meta = infer_fn(image_source)
     dets = []
     for key, tensor in outputs.items():
         arr = tensor[0]
@@ -306,14 +316,16 @@ def _hailo_boxes(image_path, min_confidence):
     return dets
 
 
-def analyze_frame(image_path, min_confidence=0.3):
-    """Detect animals in a frame.
+def analyze_frame(image_source, min_confidence=0.3):
+    """Detect animals in a frame. `image_source` is a file path OR a decoded
+    PIL.Image (the continuous poll passes an in-memory frame; callers working
+    from a saved capture pass its path).
 
     Returns {"supported": bool, "has_animal": bool,
              "box": (x1,y1,x2,y2) normalized or None,
              "label": str or None, "score": float}.
     "supported" is True only on the Hailo backend (boxes available).
-    Fail-open on errors: has_animal True, box None.
+    Fails CLOSED on errors (has_animal=False) — see NPU health notes above.
     """
     global _backend
     if _backend is None:
@@ -321,13 +333,9 @@ def analyze_frame(image_path, min_confidence=0.3):
 
     if _backend == "hailo":
         try:
-            dets = _hailo_boxes(image_path, min_confidence)
+            dets = _hailo_boxes(image_source, min_confidence)
             _note_infer_ok()
         except Exception as e:
-            # Fail CLOSED: a broken NPU must drop the frame, not wave it through
-            # to the hallucination-prone classifier. (See _note_infer_fail.)
-            # Once dead, don't warn on every 10 Hz frame — _note_infer_fail
-            # already logged the transition; drop to debug for the flood.
             was_dead = _npu_dead
             _note_infer_fail(e)
             log_fn = log.debug if was_dead else log.warning
@@ -335,20 +343,6 @@ def analyze_frame(image_path, min_confidence=0.3):
             return {"supported": True, "has_animal": False, "box": None,
                     "label": None, "score": 0.0, "npu_error": True}
         if not dets:
-            # TEMP DIAGNOSTIC: what did MegaDetector actually see on this
-            # rejected frame? Distinguishes "scored below threshold" from
-            # "missed entirely". Remove once tuned.
-            try:
-                probe = _hailo_boxes(image_path, 0.02)
-                if probe:
-                    probe.sort(key=lambda d: d["score"], reverse=True)
-                    _b = probe[0]
-                    log.info(f"[detect-probe] best={_b['label']} {_b['score']:.3f} "
-                             f"(threshold {min_confidence:.2f}) — {len(probe)} boxes >=0.02")
-                else:
-                    log.info("[detect-probe] nothing detected even at 0.02")
-            except Exception:
-                pass
             return {"supported": True, "has_animal": False, "box": None,
                     "label": None, "score": 0.0}
         # Prefer bird boxes, then highest score
@@ -359,23 +353,24 @@ def analyze_frame(image_path, min_confidence=0.3):
 
     if _backend == "tflite":
         return {"supported": False,
-                "has_animal": _tflite_detect(image_path, min_confidence),
+                "has_animal": _tflite_detect(image_source, min_confidence),
                 "box": None, "label": None, "score": 0.0}
 
     return {"supported": False, "has_animal": True, "box": None,
             "label": None, "score": 0.0}
 
 
-def contains_bird(image_path, min_confidence=0.3):
-    return analyze_frame(image_path, min_confidence)["has_animal"]
+def contains_bird(image_source, min_confidence=0.3):
+    return analyze_frame(image_source, min_confidence)["has_animal"]
 
 
-def _tflite_detect(image_path, min_confidence):
+def _tflite_detect(image_source, min_confidence):
     try:
+        img_full = _as_pil(image_source)
         inp = _tflite_interp.get_input_details()[0]
         out = _tflite_interp.get_output_details()
         h, w = inp["shape"][1], inp["shape"][2]
-        img = np.array(Image.open(image_path).resize((w, h))).astype(np.uint8)
+        img = np.array(img_full.resize((w, h))).astype(np.uint8)
         _tflite_interp.set_tensor(inp["index"], img[np.newaxis])
         _tflite_interp.invoke()
         classes = _tflite_interp.get_tensor(out[1]["index"])[0].astype(int)

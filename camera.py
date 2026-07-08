@@ -162,6 +162,23 @@ class Camera:
         img.save(buf, format="JPEG", quality=quality)
         return buf.getvalue()
 
+    def capture_rgb_array(self):
+        """Grab a fresh RGB frame for NPU inference, bypassing JPEG entirely
+        (no encode, no decode) — used by the continuous presence-detection
+        poll, which needs a frame every ~200ms regardless of whether the live
+        stream has any viewers (the encode loop idles when nobody's watching,
+        so its cached JPEGs can't be relied on here). Returns None if the
+        camera isn't available or a capture fails (e.g. mid slow-mo
+        reconfigure, though the detector loop already skips ticks then)."""
+        if not self.available:
+            return None
+        try:
+            with self.cam_lock:
+                arr = self.cam.capture_array("main")
+        except Exception:
+            return None
+        return arr[:, :, ::-1]  # BGR -> RGB, same convention as the encode loop
+
     def capture_lores(self):
         if not self.available:
             return np.zeros((240, 320), dtype=np.int16)

@@ -626,7 +626,11 @@ def api_ha():
         "animals_today": animal_today,
         "cpu_temp_c": temp.get("temp_c"),
         "cpu_temp_status": temp.get("status"),
-        "motion_active": bool(st.get("motion_crossed")),
+        # Detection is now continuous NPU presence-checking (no pixel-diff
+        # motion stage), so "active" means the NPU currently sees an animal
+        # in frame or is mid-capture/classify of one.
+        "motion_active": st.get("last_event") in
+            ("presence", "bird_detected", "animal_detected"),
         "snapshot_url": "/snapshot",
         "stream_url": "/stream",
     })

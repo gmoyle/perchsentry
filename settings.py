@@ -28,6 +28,7 @@ DEFAULTS = {
     # are kept as a separate "Animals" track so they don't dilute bird stats.
     "detector_model": "coco",     # "coco" (yolov8s, birds) or "megadetector"
     "detect_confidence": 0.15,    # NPU pre-filter box floor (0-1); hummingbirds score ~0.2-0.29 as COCO bird
+    "detect_poll_interval": 0.2,   # seconds between continuous NPU presence checks (~72ms/inference measured)
     "capture_animals": True,       # keep captures of detected non-bird animals
     "slowmo_birds": False,        # bird slow-mo off by default (camera-reconfig load); re-enable after PSU
     "slowmo_animals": True,        # also record a slow-mo clip for them

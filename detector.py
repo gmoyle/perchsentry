@@ -19,8 +19,8 @@ CAPTURES_DIR = Path(__file__).parent / "captures"
 CAPTURES_DIR.mkdir(exist_ok=True)
 
 # Camera AE/AWB is still settling for a moment after (re)start, which can
-# produce a huge frame-to-frame diff that looks like motion. Don't trigger
-# captures during this window.
+# make the very first frames unreliable. Don't trigger captures during this
+# window.
 STARTUP_GRACE_SECS = 3.0
 
 # Auto-recovery for a wedged Hailo NPU (drops off the PCIe bus). Installed via
@@ -103,6 +103,23 @@ def crop_to_box(path, box, margin=0.2, min_px=48):
 
 
 class MotionDetector:
+    """NPU-driven presence detector.
+
+    Runs the Hailo NPU continuously against live camera frames (not against a
+    saved file — capture_rgb_array() hands back an in-memory frame straight
+    from the sensor). "A bird/animal is in frame" IS the trigger: there is no
+    pixel-diff motion stage, no per-location threshold tuning. Cars, wind,
+    shadows, a swaying chain — none of it matters, because none of it is an
+    animal.
+
+    Real-time captures liberally: any frame the NPU calls a bird is saved,
+    without gating on SpeciesNet's confidence (that number is unreliable — a
+    false positive has been observed to score HIGHER than a real bird). The
+    nightly capture verifier (verify_captures.py) culls noise afterwards using
+    visit-burst membership + the NPU's own detection score, which are both far
+    more trustworthy signals than the species classifier's confidence.
+    """
+
     def __init__(self, camera, get_settings, clients_active=None):
         self.camera = camera
         self.get_settings = get_settings
@@ -131,10 +148,9 @@ class MotionDetector:
         self._last_npu_recover = 0
         self._status_lock = threading.Lock()
         self._status = {
-            "changed_px": 0,
-            "min_pixels": 0,
-            "motion_crossed": False,
             "last_event": "idle",
+            "detect_score": 0.0,
+            "detect_label": None,
             "last_species": None,
             "last_confidence": None,
             "last_filename": None,
@@ -150,8 +166,8 @@ class MotionDetector:
     def get_status(self):
         with self._status_lock:
             st = dict(self._status)
-        # Surface NPU pre-filter health so the UI/HA can show when the Hailo
-        # card has dropped out (in which case captures are paused, fail-closed).
+        # Surface NPU health so the UI/HA can show when the Hailo card has
+        # dropped out (in which case detection is paused, fail-closed).
         try:
             from objdetect import get_health
             st["npu"] = get_health()
@@ -160,7 +176,7 @@ class MotionDetector:
         return st
 
     def _name_species(self, path, box, min_conf):
-        """Run SpeciesNet on the animal crop MegaDetector found and return
+        """Run SpeciesNet on the animal crop the NPU found and return
         (common_name, confidence), or None to keep the generic 'animal' label
         (classifier absent, error, low confidence, or a non-species output like
         'blank'/'human')."""
@@ -241,12 +257,12 @@ class MotionDetector:
                 dead = self._npu_dead()  # may already be healthy again
         if dead != was_dead:
             if dead:
-                msg = ("Hailo NPU pre-filter is DOWN — captures paused, "
-                       "auto-recovery attempted. Power-cycle may be needed if it "
-                       "keeps recurring.")
+                msg = ("Hailo NPU is DOWN — detection paused, auto-recovery "
+                       "attempted. Power-cycle may be needed if it keeps "
+                       "recurring.")
                 log.warning(msg)
             else:
-                msg = "Hailo NPU pre-filter recovered — captures resumed."
+                msg = "Hailo NPU recovered — detection resumed."
                 log.info(msg)
             threading.Thread(
                 target=notify, args=("PerchSentry NPU", None, self.get_settings()),
@@ -255,42 +271,27 @@ class MotionDetector:
         return dead
 
     def _loop(self):
-        prev_gray = None
         last_capture = 0
-        was_slowmo_active = False
         npu_was_dead = False
 
         while not self._stop_event.is_set():
-            # 10 Hz motion sampling — fast enough not to miss quick visitors
-            # (e.g. hummingbirds) that only dwell a fraction of a second. The
-            # encoder-gating change already recovered the idle CPU that a lower
-            # rate would have saved, so keep sampling fast.
-            time.sleep(0.1)
+            s = self.get_settings()
+            poll_interval = max(0.05, float(s.get("detect_poll_interval", 0.2)))
+            time.sleep(poll_interval)
             try:
-                # Watch NPU pre-filter health: alert on the down/up transitions
-                # (captures fail closed while it's down) and attempt automatic
-                # PCIe recovery when it dies, so a dropped-out Hailo card self-
-                # heals without a manual reset.
+                # Watch NPU health: alert on the down/up transitions (detection
+                # fails closed while it's down) and attempt automatic PCIe
+                # recovery when it dies, so a dropped-out Hailo card self-heals
+                # without a manual reset.
                 npu_was_dead = self._check_npu_health(npu_was_dead)
 
-                slowmo_active = self._slowmo.is_active()
-                if was_slowmo_active and not slowmo_active:
-                    # Camera just came back from a slow-mo reconfigure — drop
-                    # the stale pre-burst frame and re-baseline next tick
-                    # instead of diffing against it.
-                    prev_gray = None
-                was_slowmo_active = slowmo_active
-
                 if time.time() - self._started_at < STARTUP_GRACE_SECS:
-                    self.camera.capture_lores()  # drain the stream, discard
                     self._set_status(last_event="warming_up")
-                    prev_gray = None
                     continue
 
                 # No captures at night — this camera has no IR/low-light
                 # capability, so night frames are useless. Re-check once a
                 # minute; wait in short chunks so shutdown stays responsive.
-                s = self.get_settings()
                 if s.get("latitude") is not None and s.get("longitude") is not None:
                     now = time.time()
                     if now >= self._next_day_check:
@@ -298,156 +299,162 @@ class MotionDetector:
                         self._next_day_check = now + 60
                     if not self._is_day:
                         self._set_status(last_event="night_pause")
-                        prev_gray = None
                         self._stop_event.wait(30)
                         continue
 
-                prev_gray, last_capture = self._tick(prev_gray, last_capture)
+                if self._slowmo.is_active():
+                    # Camera is mid-reconfigure for a slow-mo burst (different
+                    # resolution/mode entirely) — skip this tick rather than
+                    # fight it for cam_lock or capture a meaningless frame.
+                    self._set_status(last_event="slowmo_capturing")
+                    continue
+
+                last_capture = self._npu_tick(s, last_capture)
             except Exception as e:
-                # Never let an unexpected error (e.g. the camera briefly
-                # dropping its lores stream during a slow-mo burst) kill this
-                # thread permanently — log it, reset, and keep going.
-                log.error(f"Motion detector loop error: {e}", exc_info=True)
-                prev_gray = None
+                # Never let an unexpected error kill this thread permanently —
+                # log it and keep going next tick. Unlike the old pixel-diff
+                # design there's no cross-tick baseline to reset; each poll is
+                # independent.
+                log.error(f"Detector loop error: {e}", exc_info=True)
 
-    def _tick(self, prev_gray, last_capture):
+    def _npu_tick(self, s, last_capture):
+        arr = self.camera.capture_rgb_array()
+        if arr is None:
+            self._set_status(last_event="no_frame")
+            return last_capture
+
+        min_conf = s.get("detect_confidence", 0.15)
+        img = Image.fromarray(arr, mode="RGB")
+        det = analyze_frame(img, min_conf)
+
+        self._set_status(
+            last_event=("presence" if det["has_animal"] else "watching"),
+            detect_score=det.get("score", 0.0),
+            detect_label=det.get("label"),
+        )
+
+        if not det["has_animal"]:
+            return last_capture
+
+        now = time.time()
+        if now - last_capture < s.get("motion_cooldown", 3):
+            return last_capture  # something's present, but too soon to re-capture
+        last_capture = now
+
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        path = CAPTURES_DIR / f"motion_{ts}.jpg"
+        self.camera.capture_file(path)  # fresh full-res still for the record
+
+        self._process_capture(path, now)
+        return last_capture
+
+    def _process_capture(self, path, now):
         s = self.get_settings()
-        gray = self.camera.capture_lores()
 
-        if prev_gray is not None:
-            diff = np.abs(gray - prev_gray)
-            changed = int(np.sum(diff > s["motion_threshold"]))
-            min_pixels = s["motion_min_pixels"]
-            crossed = changed > min_pixels
-            self._set_status(changed_px=changed, min_pixels=min_pixels, motion_crossed=crossed)
+        # Deduplication — skip if nearly identical to last save
+        if self._last_saved_path and images_are_similar(path, self._last_saved_path):
+            path.unlink()
+            log.debug("Duplicate frame skipped")
+            self._set_status(last_event="duplicate", last_event_at=now)
+            return
+        self._last_saved_path = path
 
-            if crossed:
-                now = time.time()
-                if now - last_capture > s["motion_cooldown"]:
-                    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-                    path = CAPTURES_DIR / f"motion_{ts}.jpg"
-                    self.camera.capture_file(path)
-                    last_capture = now
+        # Re-check the NPU on the saved full-res file: the poll frame that
+        # triggered this capture is a beat older than what capture_file() just
+        # grabbed (different framing is possible), so get a fresh box from the
+        # actual saved image rather than reusing the trigger's.
+        det = analyze_frame(path, s.get("detect_confidence", 0.15))
+        if not det["has_animal"]:
+            log.debug(f"No animal on saved frame, deleting {path.name}")
+            path.unlink(missing_ok=True)
+            self._last_saved_path = None
+            self._set_status(last_event="no_animal", last_event_at=now)
+            return
 
-                    # Deduplication — skip if nearly identical to last save
-                    if self._last_saved_path and images_are_similar(path, self._last_saved_path):
-                        path.unlink()
-                        log.debug(f"Duplicate frame skipped")
-                        self._set_status(last_event="duplicate", last_event_at=now)
-                        return gray, last_capture
-                    self._last_saved_path = path
+        # Classify a bird-centered crop when the NPU gave us a box: the bird
+        # fills the classifier input instead of ~5% of the frame, which
+        # dramatically improves species confidence.
+        classify_path = path
+        crop_tmp = None
+        if det.get("box"):
+            crop_tmp = crop_to_box(path, det["box"])
+            if crop_tmp:
+                classify_path = crop_tmp
+        try:
+            result = classify_image(classify_path, self._interp, self._labels)
+        finally:
+            if crop_tmp:
+                crop_tmp.unlink(missing_ok=True)
 
-                    # Object detection pre-filter (NPU): no animal → discard.
-                    det = analyze_frame(path, s.get("detect_confidence", 0.15))
-                    if not det["has_animal"]:
-                        log.debug(f"Pre-filter: no animal detected, deleting {path.name}")
-                        path.unlink(missing_ok=True)
-                        self._last_saved_path = None
-                        self._set_status(last_event="no_animal", last_event_at=now)
-                        return gray, last_capture
+        if det.get("label") == "bird":
+            # Capture liberally: trust the NPU presence signal and keep the
+            # frame. SpeciesNet only gives a tentative label here — it can
+            # hallucinate species/confidence on blurry frames — so real-time
+            # does NOT gate on its confidence. The nightly capture verifier
+            # decides real-vs-noise from visit-burst membership + the NPU
+            # detection score (logged below), both far more trustworthy.
+            species = result["species"] if result["is_bird"] else "unidentified bird"
+            confidence = result["confidence"] if result["is_bird"] else 0.0
+            log.info(f"BIRD DETECTED: {species} ({confidence:.1%}) → {path.name} "
+                     f"[npu {det.get('score', 0.0):.2f}]")
+            self._set_status(
+                last_event="bird_detected", last_event_at=now,
+                last_species=species, last_confidence=confidence,
+                last_filename=path.name,
+            )
 
-                    # Classify a bird-centered crop when the NPU gave us a box:
-                    # the bird fills the classifier input instead of ~5% of the
-                    # frame, which dramatically improves species confidence.
-                    classify_path = path
-                    crop_tmp = None
-                    if det.get("box"):
-                        crop_tmp = crop_to_box(path, det["box"])
-                        if crop_tmp:
-                            classify_path = crop_tmp
-                    try:
-                        result = classify_image(classify_path, self._interp, self._labels)
-                    finally:
-                        if crop_tmp:
-                            crop_tmp.unlink(missing_ok=True)
-                    # TEMP DIAGNOSTIC: both signals side by side so we can find a
-                    # rule that separates real birds from SpeciesNet hallucinations.
-                    log.info(f"[classify] yolo={det.get('score', 0.0):.2f} "
-                             f"is_bird={result['is_bird']} "
-                             f"species={result.get('species')} "
-                             f"spnet={result.get('confidence', 0.0):.2f}")
-                    if result["is_bird"]:
-                        species = result["species"]
-                        confidence = result["confidence"]
-                        min_confidence = s.get("confidence_threshold", 30) / 100.0
-
-                        # The confidence slider gates ALL species. (There used
-                        # to be a keep-hummingbirds-at-any-confidence bypass
-                        # here; it flooded sightings with sub-15% "anna" hits
-                        # on empty frames, silently overriding the user's
-                        # threshold.)
-                        if confidence < min_confidence:
-                            log.debug(f"Bird below confidence threshold ({confidence:.1%} < {min_confidence:.1%}), deleting {path.name}")
-                            path.unlink(missing_ok=True)
-                            self._last_saved_path = None
-                            self._set_status(
-                                last_event="low_confidence", last_event_at=now,
-                                last_species=species, last_confidence=confidence,
-                            )
-                            return gray, last_capture
-
-                        log.info(f"BIRD DETECTED: {species} ({confidence:.1%}) → {path.name}")
-                        self._set_status(
-                            last_event="bird_detected", last_event_at=now,
-                            last_species=species, last_confidence=confidence,
-                            last_filename=path.name,
-                        )
-
-                        if s.get("slowmo_birds", False) and not self._slowmo.is_active():
-                            if self._clients_active():
-                                log.info("Bird detected — skipping slow-mo (someone is viewing the site)")
-                            else:
-                                log.info("Bird detected! Triggering slow-mo capture")
-                                self._slowmo.capture(species, confidence)
-                        threading.Thread(
-                            target=notify,
-                            args=(species, confidence, s),
-                            daemon=True,
-                        ).start()
+            if s.get("slowmo_birds", False) and not self._slowmo.is_active():
+                if self._clients_active():
+                    log.info("Bird detected — skipping slow-mo (someone is viewing the site)")
+                else:
+                    log.info("Bird detected! Triggering slow-mo capture")
+                    self._slowmo.capture(species, confidence)
+            threading.Thread(
+                target=notify,
+                args=(species, confidence, s),
+                daemon=True,
+            ).start()
+        else:
+            # Not a bird — but the NPU may have labelled it a known non-bird
+            # animal (cat/dog/bear/…). Keep those as a separate "Animals"
+            # track instead of discarding, so daytime wildlife isn't missed.
+            # Bird stats stay pure because this logs a distinct ANIMAL
+            # DETECTED line.
+            animal = det.get("label")
+            if animal and s.get("capture_animals", True):
+                score = det.get("score", 0.0)
+                # Name the species with SpeciesNet on the same crop; fall back
+                # to the generic "animal" label if it's unsure. This
+                # confidence is the classifier's, a different (and more
+                # meaningful) number than the detector's box score it replaces.
+                named = self._name_species(
+                    path, det.get("box"),
+                    s.get("species_confidence", 50) / 100.0,
+                )
+                if named:
+                    animal, score = named
+                log.info(f"ANIMAL DETECTED: {animal} ({score:.1%}) → {path.name}")
+                self._last_saved_path = path
+                self._set_status(
+                    last_event="animal_detected", last_event_at=now,
+                    last_species=animal, last_confidence=score,
+                    last_filename=path.name,
+                )
+                if not self._slowmo.is_active() and s.get("slowmo_animals", True):
+                    if self._clients_active():
+                        log.info(f"{animal} detected — skipping slow-mo (someone is viewing the site)")
                     else:
-                        # Not a bird — but the NPU pre-filter may have labelled
-                        # it a known non-bird animal (cat/dog/bear/…). Keep those
-                        # as a separate "Animals" track instead of discarding, so
-                        # daytime wildlife isn't missed. Bird stats stay pure
-                        # because this logs a distinct ANIMAL DETECTED line.
-                        animal = det.get("label")
-                        if animal and animal != "bird" and s.get("capture_animals", True):
-                            score = det.get("score", 0.0)
-                            # Name the species with SpeciesNet on the same crop;
-                            # fall back to the generic "animal" label if it's
-                            # unsure. This confidence is the classifier's, which
-                            # is a different (and more meaningful) number than
-                            # the detector's box score it replaces.
-                            named = self._name_species(
-                                path, det.get("box"),
-                                s.get("species_confidence", 50) / 100.0,
-                            )
-                            if named:
-                                animal, score = named
-                            log.info(f"ANIMAL DETECTED: {animal} ({score:.1%}) → {path.name}")
-                            self._last_saved_path = path
-                            self._set_status(
-                                last_event="animal_detected", last_event_at=now,
-                                last_species=animal, last_confidence=score,
-                                last_filename=path.name,
-                            )
-                            if not self._slowmo.is_active() and s.get("slowmo_animals", True):
-                                if self._clients_active():
-                                    log.info(f"{animal} detected — skipping slow-mo (someone is viewing the site)")
-                                else:
-                                    log.info(f"{animal} detected! Triggering slow-mo capture")
-                                    self._slowmo.capture(animal, score)
-                            if s.get("notify_animals", False):
-                                threading.Thread(
-                                    target=notify, args=(animal, score, s), daemon=True,
-                                ).start()
-                        else:
-                            log.debug(f"Motion (no bird/animal, {changed}px), deleting {path.name}")
-                            path.unlink(missing_ok=True)
-                            self._last_saved_path = None
-                            self._set_status(
-                                last_event="no_bird", last_event_at=now,
-                                last_species=None, last_confidence=result.get("confidence"),
-                            )
-
-        return gray, last_capture
+                        log.info(f"{animal} detected! Triggering slow-mo capture")
+                        self._slowmo.capture(animal, score)
+                if s.get("notify_animals", False):
+                    threading.Thread(
+                        target=notify, args=(animal, score, s), daemon=True,
+                    ).start()
+            else:
+                log.debug(f"Capture has no known bird/animal, deleting {path.name}")
+                path.unlink(missing_ok=True)
+                self._last_saved_path = None
+                self._set_status(
+                    last_event="no_bird", last_event_at=now,
+                    last_species=None, last_confidence=result.get("confidence"),
+                )
