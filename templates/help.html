@@ -97,50 +97,50 @@
     <h2>Help &amp; Settings Guide</h2>
 
     <div class="section">
-      <h3>Motion Detection</h3>
+      <h3>Detection</h3>
+
+      <p style="font-size:0.9rem;line-height:1.7;color:#bbb;margin-bottom:20px">
+        PerchSentry watches the live view continuously with the on-board Hailo
+        AI accelerator, several times a second. There is no motion threshold to
+        tune any more &mdash; <strong>&ldquo;an animal is in the frame&rdquo; is
+        the trigger itself.</strong> Cars, wind, swaying branches, moving
+        shadows: none of it fires a capture, because none of it is an animal.
+        When the detector sees a bird it saves a full-resolution still,
+        identifies the species, and (if enabled) records a slow-mo clip.
+      </p>
 
       <div class="setting">
         <div>
-          <div class="setting-name">Threshold</div>
-          <div class="setting-range">Range: 1–100</div>
+          <div class="setting-name">Detect thresh</div>
+          <div class="setting-range">Range: 0.05 &ndash; 0.80</div>
         </div>
         <div class="setting-desc">
-          How different a pixel must be between frames before it's counted as motion. Lower values make the camera more sensitive — it will trigger on subtle movements like shadows or leaves. Higher values only trigger on obvious movement like a bird landing. <strong>Start around 20–30</strong> and adjust if you're getting too many false triggers or missing birds.
-        </div>
-      </div>
-
-      <div class="setting">
-        <div>
-          <div class="setting-name">Min Pixels</div>
-          <div class="setting-range">Range: 50–5000</div>
-        </div>
-        <div class="setting-desc">
-          The minimum number of changed pixels required to trigger a capture. This filters out tiny disturbances like a single leaf blowing or a flickering shadow. If a bird is small in the frame, lower this value. If you're getting captures triggered by wind or lighting changes, raise it. <strong>500–1000</strong> works well for a bird at a typical feeder distance.
+          How sure the AI must be that something is an animal before it counts. Lower catches fainter, smaller, or blurrier birds &mdash; a hummingbird mid-hover scores surprisingly low &mdash; at the cost of the occasional false box; higher is stricter. <strong>0.15</strong> is a good default for a hummingbird feeder. Don't set this high, or small fast birds slip under it.
         </div>
       </div>
 
       <div class="setting">
         <div>
           <div class="setting-name">Cooldown</div>
-          <div class="setting-range">Range: 1–30 seconds</div>
+          <div class="setting-range">Range: 1&ndash;30 seconds</div>
         </div>
         <div class="setting-desc">
-          After a motion capture is saved, how many seconds to wait before capturing again. This prevents filling your storage with hundreds of nearly identical frames of the same bird sitting still. Set it low (1–3s) if you want to catch every moment of a bird's visit, or high (10–30s) to only capture one image per visit and save storage space.
+          Minimum wait between saved stills while a bird stays in view. Prevents filling storage with near-identical frames of the same perched bird. Low (1&ndash;3s) captures more of a visit; high (10&ndash;30s) keeps roughly one image per visit.
         </div>
       </div>
 
       <div class="setting">
         <div>
-          <div class="setting-name">Min Confidence %</div>
-          <div class="setting-range">Range: 0–100%</div>
+          <div class="setting-name">Poll</div>
+          <div class="setting-range">Range: 0.1 &ndash; 1.0 seconds</div>
         </div>
         <div class="setting-desc">
-          The minimum confidence score the bird classifier must reach before a sighting is logged. Motion captures are always saved regardless of this setting — this only controls what appears in your Sightings feed and Stats. Set it lower (20–40%) to catch more species including uncertain detections, or higher (60–80%) if you only want high-confidence identifications in your log.
+          How often the AI checks the live frame. <strong>0.2s</strong> (5&times; a second) is the default. Lower (0.1s) reacts faster to quick fly-throughs but uses more processor; higher spreads the load out. Each check takes about 70&nbsp;ms, so even 0.2s leaves comfortable headroom.
         </div>
       </div>
 
       <div class="tip">
-        <strong>Tip: tuning for your feeder.</strong> If you're getting too many false captures, raise Threshold and Min Pixels first. If you're missing birds, lower Threshold. The Cooldown is the most effective way to control storage usage — a 5 second cooldown means a bird that stays 30 seconds generates at most 6 captures instead of hundreds.
+        <strong>Capture generously, tidy up overnight.</strong> Through the day PerchSentry keeps every frame the AI calls a bird, even low-confidence ones &mdash; better to over-capture than miss a visit. Overnight it reviews the day's captures and quietly sets aside the ones that were probably false alarms (an isolated blip that wasn't part of a real visit burst), so the gallery stays clean without ever risking a real sighting. Nothing is deleted &mdash; culled captures move to a review folder.
       </div>
     </div>
 
