@@ -507,19 +507,28 @@
   #motion-panel .mp-event.low_confidence,
   #motion-panel .mp-event.no_bird,
   #motion-panel .mp-event.no_animal { color: #ff9800; }
-  </style>
+      /* --- responsive top nav (icons-only, second row on mobile) --- */
+    .topnav { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    @media (max-width: 600px) {
+      header { flex-wrap: wrap; }
+      .topnav { flex-basis: 100%; margin-top: 8px; }
+      .topnav .nav-label { display: none; }
+      .topnav .nav-icon { display: inline !important; }
+    }
+</style>
 </head>
 <body>
   <header>
     <div class="dot"></div>
     <h1>PerchSentry</h1>
+    <div class="topnav">
     <button class="nav-btn" onclick="toggleSightings()" id="sightingsBtn">
       <span class="nav-icon">🐦</span><span class="nav-label">Sightings</span>
     </button>
     <a href="/gallery" class="nav-btn">
       <span class="nav-icon">🖼</span><span class="nav-label">Gallery</span>
     </a>
-    <a href="/slowmo-page" class="nav-btn"><span class="nav-icon">🐦</span><span class="nav-label">Slow-Mo</span></a>
+    <a href="/slowmo-page" class="nav-btn"><span class="nav-icon">🎞</span><span class="nav-label">Slow-Mo</span></a>
     <a href="/stats" class="nav-btn">
       <span class="nav-icon">📊</span><span class="nav-label">Stats</span>
     </a>
@@ -530,6 +539,7 @@
     <button class="nav-btn" onclick="toggleFullscreen()" id="fsBtn">
       <span class="nav-icon">⛶</span><span class="nav-label">⛶ Fullscreen</span>
     </button>
+    </div>
   </header>
   <div id="slowmo-banner">📹 Capturing high-speed video…</div>
 
