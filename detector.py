@@ -2,6 +2,7 @@ import time
 import base64
 import logging
 import threading
+import subprocess
 import urllib.request
 import numpy as np
 from datetime import datetime
@@ -22,17 +23,31 @@ CAPTURES_DIR.mkdir(exist_ok=True)
 # captures during this window.
 STARTUP_GRACE_SECS = 3.0
 
+# Auto-recovery for a wedged Hailo NPU (drops off the PCIe bus). Installed via
+# sudoers so the service user may run just this one script as root. Rate-limited
+# so a permanently-dead card doesn't reset the bus in a tight loop.
+HAILO_RECOVER_CMD = ["sudo", "-n", "/usr/local/sbin/hailo_recover.sh"]
+HAILO_RECOVER_COOLDOWN_SECS = 300
+
 log = logging.getLogger("perchsentry")
 
 
-def notify(species, confidence, settings):
+def notify(species, confidence, settings, message=None):
     url = settings.get("ntfy_url", "").strip()
     if not url:
         return
     try:
+        # `message` overrides the default sighting text — used for system
+        # alerts (e.g. NPU down) that aren't a species sighting.
+        if message is not None:
+            body = message
+            tags = "warning"
+        else:
+            body = f"{species} spotted! ({confidence:.1%} confidence)"
+            tags = "bird"
         headers = {
             "Title": "PerchSentry",
-            "Tags": "bird",
+            "Tags": tags,
             "Actions": "view, View capture, http://perchsentry.local:8080/, clear=true",
         }
         user = settings.get("ntfy_user", "").strip()
@@ -42,7 +57,7 @@ def notify(species, confidence, settings):
             headers["Authorization"] = f"Basic {token}"
         req = urllib.request.Request(
             url,
-            data=f"{species} spotted! ({confidence:.1%} confidence)".encode(),
+            data=body.encode(),
             headers=headers,
             method="POST",
         )
@@ -113,6 +128,7 @@ class MotionDetector:
         self._started_at = 0
         self._is_day = True
         self._next_day_check = 0
+        self._last_npu_recover = 0
         self._status_lock = threading.Lock()
         self._status = {
             "changed_px": 0,
@@ -133,7 +149,15 @@ class MotionDetector:
 
     def get_status(self):
         with self._status_lock:
-            return dict(self._status)
+            st = dict(self._status)
+        # Surface NPU pre-filter health so the UI/HA can show when the Hailo
+        # card has dropped out (in which case captures are paused, fail-closed).
+        try:
+            from objdetect import get_health
+            st["npu"] = get_health()
+        except Exception:
+            st["npu"] = None
+        return st
 
     def _name_species(self, path, box, min_conf):
         """Run SpeciesNet on the animal crop MegaDetector found and return
@@ -166,10 +190,75 @@ class MotionDetector:
     def stop(self):
         self._stop_event.set()
 
+    def _npu_dead(self):
+        try:
+            from objdetect import get_health
+            return not get_health()["healthy"]
+        except Exception:
+            return False
+
+    def _try_npu_recover(self):
+        """Attempt automatic PCIe recovery of a wedged Hailo card, rate-limited.
+
+        Runs the installed recovery script (remove/rescan + secondary bus reset).
+        On success, reset objdetect's health/backend so the next frame re-inits
+        and inference resumes. Returns True if the device responded afterwards.
+        """
+        now = time.time()
+        if now - self._last_npu_recover < HAILO_RECOVER_COOLDOWN_SECS:
+            return False
+        self._last_npu_recover = now
+        log.warning("Attempting automatic Hailo PCIe recovery…")
+        try:
+            proc = subprocess.run(HAILO_RECOVER_CMD, capture_output=True,
+                                  text=True, timeout=30)
+        except Exception as e:
+            log.error(f"Hailo recovery script failed to run: {e}")
+            return False
+        if proc.returncode == 0:
+            log.info("Hailo PCIe recovery succeeded; re-initializing backend")
+            try:
+                import objdetect
+                # Force a clean re-init on the next analyze_frame() and clear the
+                # dead flag so the pipeline stops failing closed.
+                objdetect._backend = None
+                objdetect._npu_dead = False
+                objdetect._consecutive_failures = 0
+            except Exception:
+                pass
+            return True
+        log.error(f"Hailo PCIe recovery failed (rc={proc.returncode}): "
+                  f"{proc.stderr.strip() or proc.stdout.strip()}")
+        return False
+
+    def _check_npu_health(self, was_dead):
+        """Detect NPU down/up transitions: alert on each, and on going down try
+        automatic PCIe recovery. Returns the current dead state to carry over."""
+        dead = self._npu_dead()
+        if dead and not was_dead:
+            recovered = self._try_npu_recover()
+            if recovered:
+                dead = self._npu_dead()  # may already be healthy again
+        if dead != was_dead:
+            if dead:
+                msg = ("Hailo NPU pre-filter is DOWN — captures paused, "
+                       "auto-recovery attempted. Power-cycle may be needed if it "
+                       "keeps recurring.")
+                log.warning(msg)
+            else:
+                msg = "Hailo NPU pre-filter recovered — captures resumed."
+                log.info(msg)
+            threading.Thread(
+                target=notify, args=("PerchSentry NPU", None, self.get_settings()),
+                kwargs={"message": msg}, daemon=True,
+            ).start()
+        return dead
+
     def _loop(self):
         prev_gray = None
         last_capture = 0
         was_slowmo_active = False
+        npu_was_dead = False
 
         while not self._stop_event.is_set():
             # 10 Hz motion sampling — fast enough not to miss quick visitors
@@ -178,6 +267,12 @@ class MotionDetector:
             # rate would have saved, so keep sampling fast.
             time.sleep(0.1)
             try:
+                # Watch NPU pre-filter health: alert on the down/up transitions
+                # (captures fail closed while it's down) and attempt automatic
+                # PCIe recovery when it dies, so a dropped-out Hailo card self-
+                # heals without a manual reset.
+                npu_was_dead = self._check_npu_health(npu_was_dead)
+
                 slowmo_active = self._slowmo.is_active()
                 if was_slowmo_active and not slowmo_active:
                     # Camera just came back from a slow-mo reconfigure — drop

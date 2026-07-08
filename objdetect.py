@@ -70,6 +70,60 @@ _tflite_labels = None
 # InferVStreams on a single network group is not safe to enter concurrently.
 _infer_lock = threading.Lock()
 
+# NPU health. The Hailo card can drop off the PCIe bus (fw-control failures,
+# "Device disconnected") and every infer then throws. We must NOT keep pretending
+# every frame has an animal in that case — that hands empty frames to the species
+# classifier, which confidently hallucinates a large white bird (Ardea alba) on
+# bright sky/background and floods the system with fake sightings and empty
+# slow-mo. So once inference has failed this many times in a row we treat the
+# pre-filter as DEAD and fail CLOSED (has_animal=False) until it recovers, and
+# expose the state so the app can surface / notify it.
+_MAX_CONSECUTIVE_FAILURES = 3
+_consecutive_failures = 0
+_npu_dead = False
+_last_error = None
+
+
+def get_health():
+    """Return NPU pre-filter health for status/UI/alerting.
+
+    backend: 'hailo' | 'tflite' | 'passthrough' | None (uninitialized)
+    healthy: False once the Hailo backend has failed inference repeatedly.
+    When unhealthy, analyze_frame fails CLOSED (drops the frame) rather than
+    fail-open, so no fake sightings are produced while the card is down.
+    """
+    return {
+        "backend": _backend,
+        "healthy": not _npu_dead,
+        "consecutive_failures": _consecutive_failures,
+        "last_error": _last_error,
+    }
+
+
+def _note_infer_ok():
+    global _consecutive_failures, _npu_dead, _last_error
+    if _consecutive_failures or _npu_dead:
+        if _npu_dead:
+            log.info("Hailo NPU pre-filter recovered — resuming animal filtering")
+        _consecutive_failures = 0
+        _npu_dead = False
+        _last_error = None
+
+
+def _note_infer_fail(exc):
+    global _consecutive_failures, _npu_dead, _last_error
+    _consecutive_failures += 1
+    _last_error = f"{type(exc).__name__}: {exc}"
+    if not _npu_dead and _consecutive_failures >= _MAX_CONSECUTIVE_FAILURES:
+        _npu_dead = True
+        log.error(
+            "Hailo NPU pre-filter DEAD after %d consecutive inference failures "
+            "(%s); failing CLOSED — captures paused until the NPU recovers. "
+            "The card likely dropped off the PCIe bus; a power-cycle or PCIe "
+            "reset is needed.",
+            _consecutive_failures, _last_error,
+        )
+
 
 def _find_hef():
     for p in MEGADETECTOR_HEFS:
@@ -257,10 +311,18 @@ def analyze_frame(image_path, min_confidence=0.3):
     if _backend == "hailo":
         try:
             dets = _hailo_boxes(image_path, min_confidence)
+            _note_infer_ok()
         except Exception as e:
-            log.debug(f"Hailo detection error (fail-open): {type(e).__name__}: {e}")
-            return {"supported": True, "has_animal": True, "box": None,
-                    "label": None, "score": 0.0}
+            # Fail CLOSED: a broken NPU must drop the frame, not wave it through
+            # to the hallucination-prone classifier. (See _note_infer_fail.)
+            # Once dead, don't warn on every 10 Hz frame — _note_infer_fail
+            # already logged the transition; drop to debug for the flood.
+            was_dead = _npu_dead
+            _note_infer_fail(e)
+            log_fn = log.debug if was_dead else log.warning
+            log_fn(f"Hailo detection error (failing closed): {type(e).__name__}: {e}")
+            return {"supported": True, "has_animal": False, "box": None,
+                    "label": None, "score": 0.0, "npu_error": True}
         if not dets:
             return {"supported": True, "has_animal": False, "box": None,
                     "label": None, "score": 0.0}
