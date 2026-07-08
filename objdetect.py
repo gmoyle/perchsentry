@@ -125,13 +125,24 @@ def _note_infer_fail(exc):
         )
 
 
+# Which detector to prefer: "coco" (YOLOv8s — COCO 'bird' class, which detects
+# the hummingbirds at the feeder) or "megadetector" (class-agnostic wildlife,
+# built for larger animals — reserved for the future night camera; it is blind
+# to hummingbird-sized birds). Set from the detector_model setting.
+_preferred_kind = "coco"
+
+
+def set_preferred_model(kind):
+    global _preferred_kind
+    _preferred_kind = "megadetector" if str(kind).lower() == "megadetector" else "coco"
+
+
 def _find_hef():
-    for p in MEGADETECTOR_HEFS:
-        if p.exists():
-            return str(p)
-    for p in HEF_SEARCH_PATHS:
-        if Path(p).exists():
-            return p
+    coco = next((p for p in HEF_SEARCH_PATHS if Path(p).exists()), None)
+    mega = next((str(p) for p in MEGADETECTOR_HEFS if p.exists()), None)
+    chosen = (mega or coco) if _preferred_kind == "megadetector" else (coco or mega)
+    if chosen:
+        return chosen
     if Path("/usr/share/hailo-models").exists():
         found = list(Path("/usr/share/hailo-models").glob("yolo*.hef"))
         if found:
@@ -324,6 +335,20 @@ def analyze_frame(image_path, min_confidence=0.3):
             return {"supported": True, "has_animal": False, "box": None,
                     "label": None, "score": 0.0, "npu_error": True}
         if not dets:
+            # TEMP DIAGNOSTIC: what did MegaDetector actually see on this
+            # rejected frame? Distinguishes "scored below threshold" from
+            # "missed entirely". Remove once tuned.
+            try:
+                probe = _hailo_boxes(image_path, 0.02)
+                if probe:
+                    probe.sort(key=lambda d: d["score"], reverse=True)
+                    _b = probe[0]
+                    log.info(f"[detect-probe] best={_b['label']} {_b['score']:.3f} "
+                             f"(threshold {min_confidence:.2f}) — {len(probe)} boxes >=0.02")
+                else:
+                    log.info("[detect-probe] nothing detected even at 0.02")
+            except Exception:
+                pass
             return {"supported": True, "has_animal": False, "box": None,
                     "label": None, "score": 0.0}
         # Prefer bird boxes, then highest score

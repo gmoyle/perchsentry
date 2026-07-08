@@ -17,6 +17,7 @@ from slowmo import SLOWMO_DIR, is_capturing
 from cleanup import DiskCleaner, disk_usage
 from backup import BackupScheduler, run_backup
 from verify_slowmo import SlowMoVerifier
+from verify_captures import CaptureVerifier
 from sysmon import read_temp, temp_history, TempLogger
 
 logging.basicConfig(
@@ -97,6 +98,8 @@ def _maintenance_gate():
 Path("logs").mkdir(exist_ok=True)
 log.info("PerchSentry starting")
 _settings = cfg.load()
+import objdetect as _objdetect
+_objdetect.set_preferred_model(_settings.get("detector_model", "coco"))
 _camera = Camera(cam_id=0)
 _camera1 = Camera(cam_id=1)
 import time as _time
@@ -133,6 +136,7 @@ _timelapse = TimelapseCapturer(_camera, lambda: _settings)
 _cleaner = DiskCleaner(lambda: _settings)
 _backup = BackupScheduler(lambda: _settings)
 _slowmo_verifier = SlowMoVerifier(lambda: _settings, clients_active=clients_active, set_maintenance=set_maintenance)
+_capture_verifier = CaptureVerifier(lambda: _settings, clients_active=clients_active, set_maintenance=set_maintenance)
 _temp_logger = TempLogger()
 # Let the cameras idle their encode loops when no one is viewing the stream.
 _camera.set_viewer_source(_stream_viewers)
@@ -146,6 +150,7 @@ _timelapse.start()
 _cleaner.start()
 _backup.start()
 _slowmo_verifier.start()
+_capture_verifier.start()
 _temp_logger.start()
 log.info("Camera ready — http://perchsentry.local:8080/")
 
@@ -805,6 +810,13 @@ def timelapse_status():
         "newest": frames[-1].stem.replace("tl_", "") if frames else None,
         "video_exists": video.exists(),
     })
+
+
+@app.route("/api/verify-captures", methods=["POST"])
+def verify_captures_now():
+    import threading as _t
+    _t.Thread(target=lambda: _capture_verifier.run_pass(force=True), daemon=True).start()
+    return jsonify({"ok": True, "message": "Capture review started in background"})
 
 
 if __name__ == "__main__":

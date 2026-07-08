@@ -338,7 +338,7 @@ class MotionDetector:
                     self._last_saved_path = path
 
                     # Object detection pre-filter (NPU): no animal → discard.
-                    det = analyze_frame(path)
+                    det = analyze_frame(path, s.get("detect_confidence", 0.15))
                     if not det["has_animal"]:
                         log.debug(f"Pre-filter: no animal detected, deleting {path.name}")
                         path.unlink(missing_ok=True)
@@ -360,6 +360,12 @@ class MotionDetector:
                     finally:
                         if crop_tmp:
                             crop_tmp.unlink(missing_ok=True)
+                    # TEMP DIAGNOSTIC: both signals side by side so we can find a
+                    # rule that separates real birds from SpeciesNet hallucinations.
+                    log.info(f"[classify] yolo={det.get('score', 0.0):.2f} "
+                             f"is_bird={result['is_bird']} "
+                             f"species={result.get('species')} "
+                             f"spnet={result.get('confidence', 0.0):.2f}")
                     if result["is_bird"]:
                         species = result["species"]
                         confidence = result["confidence"]
@@ -387,7 +393,7 @@ class MotionDetector:
                             last_filename=path.name,
                         )
 
-                        if not self._slowmo.is_active():
+                        if s.get("slowmo_birds", False) and not self._slowmo.is_active():
                             if self._clients_active():
                                 log.info("Bird detected — skipping slow-mo (someone is viewing the site)")
                             else:
