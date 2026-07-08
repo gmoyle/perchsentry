@@ -588,22 +588,18 @@
     <div class="divider"></div>
 
     <div class="controls-group">
-      <span class="group-label">Motion</span>
+      <span class="group-label">Detection</span>
       <div class="control">
-        <div class="label-row"><label for="motion_threshold">Threshold</label><span class="val" id="val_motion_threshold"></span></div>
-        <input type="range" id="motion_threshold" min="1" max="100" step="1">
-      </div>
-      <div class="control">
-        <div class="label-row"><label for="motion_min_pixels">Min px</label><span class="val" id="val_motion_min_pixels"></span></div>
-        <input type="range" id="motion_min_pixels" min="50" max="5000" step="50">
+        <div class="label-row"><label for="detect_confidence">Detect thresh</label><span class="val" id="val_detect_confidence"></span></div>
+        <input type="range" id="detect_confidence" min="0.05" max="0.8" step="0.05">
       </div>
       <div class="control">
         <div class="label-row"><label for="motion_cooldown">Cooldown (s)</label><span class="val" id="val_motion_cooldown"></span></div>
         <input type="range" id="motion_cooldown" min="1" max="30" step="1">
       </div>
       <div class="control">
-        <div class="label-row"><label for="confidence_threshold">Min confidence %</label><span class="val" id="val_confidence_threshold"></span></div>
-        <input type="range" id="confidence_threshold" min="0" max="100" step="5">
+        <div class="label-row"><label for="detect_poll_interval">Poll (s)</label><span class="val" id="val_detect_poll_interval"></span></div>
+        <input type="range" id="detect_poll_interval" min="0.1" max="1.0" step="0.05">
       </div>
     </div>
 
@@ -722,24 +718,20 @@
 
       <div class="accordion">
         <button class="accordion-header" onclick="toggleAccordion(this)">
-          Motion <span class="chevron">▾</span>
+          Detection <span class="chevron">▾</span>
         </button>
         <div class="accordion-body">
           <div class="sheet-control">
-            <div class="label-row"><span>Threshold</span><span class="val" id="mval_motion_threshold"></span></div>
-            <input type="range" id="m_motion_threshold" min="1" max="100" step="1">
-          </div>
-          <div class="sheet-control">
-            <div class="label-row"><span>Min pixels</span><span class="val" id="mval_motion_min_pixels"></span></div>
-            <input type="range" id="m_motion_min_pixels" min="50" max="5000" step="50">
+            <div class="label-row"><span>Detect thresh</span><span class="val" id="mval_detect_confidence"></span></div>
+            <input type="range" id="m_detect_confidence" min="0.05" max="0.8" step="0.05">
           </div>
           <div class="sheet-control">
             <div class="label-row"><span>Cooldown (s)</span><span class="val" id="mval_motion_cooldown"></span></div>
             <input type="range" id="m_motion_cooldown" min="1" max="30" step="1">
           </div>
           <div class="sheet-control">
-            <div class="label-row"><span>Min confidence %</span><span class="val" id="mval_confidence_threshold"></span></div>
-            <input type="range" id="m_confidence_threshold" min="0" max="100" step="5">
+            <div class="label-row"><span>Poll (s)</span><span class="val" id="mval_detect_poll_interval"></span></div>
+            <input type="range" id="m_detect_poll_interval" min="0.1" max="1.0" step="0.05">
           </div>
         </div>
       </div>
@@ -829,10 +821,9 @@
       ['contrast',            'contrast',            'm_contrast',            'val_contrast',            'mval_contrast'],
       ['saturation',          'saturation',          'm_saturation',          'val_saturation',          'mval_saturation'],
       ['sharpness',           'sharpness',           'm_sharpness',           'val_sharpness',           'mval_sharpness'],
-      ['motion_threshold',    'motion_threshold',    'm_motion_threshold',    'val_motion_threshold',    'mval_motion_threshold'],
-      ['motion_min_pixels',   'motion_min_pixels',   'm_motion_min_pixels',   'val_motion_min_pixels',   'mval_motion_min_pixels'],
+      ['detect_confidence',   'detect_confidence',   'm_detect_confidence',   'val_detect_confidence',   'mval_detect_confidence'],
       ['motion_cooldown',     'motion_cooldown',     'm_motion_cooldown',     'val_motion_cooldown',     'mval_motion_cooldown'],
-      ['confidence_threshold','confidence_threshold','m_confidence_threshold','val_confidence_threshold','mval_confidence_threshold'],
+      ['detect_poll_interval','detect_poll_interval','m_detect_poll_interval','val_detect_poll_interval','mval_detect_poll_interval'],
       ['timelapse_interval',  'timelapse_interval',  'm_timelapse_interval',  'val_timelapse_interval',  'mval_timelapse_interval'],
     ];
 
