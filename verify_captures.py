@@ -37,10 +37,13 @@ DELETED_FILE = BASE / "deleted.json"
 
 log = logging.getLogger("perchsentry")
 
-# Captures carry an optional "[yolo 0.27]" suffix now; older lines won't.
+# Captures carry an optional detection-score suffix. The live pipeline emits
+# "[npu 0.27]"; older lines used "[yolo 0.27]" or omit it entirely. Accept both
+# spellings — matching only "yolo" silently dropped the score (group -> None ->
+# 0.0), which disabled the strong-single-detection rescue below.
 BIRD_RE = re.compile(
     r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}).*BIRD DETECTED: .+? \(\d+\.\d+%\) . "
-    r"(motion_\S+\.jpg)(?: \[yolo (\d+\.\d+)\])?"
+    r"(motion_\S+\.jpg)(?: \[(?:npu|yolo) (\d+\.\d+)\])?"
 )
 
 
