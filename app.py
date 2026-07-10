@@ -11,7 +11,8 @@ sys.stdout.reconfigure(line_buffering=True)
 
 import settings as cfg
 from camera import Camera, generate_stream
-from detector import MotionDetector
+from detector import MotionDetector, notify
+from thermal import ThermalGovernor
 from timelapse import TimelapseCapturer, build_video, TIMELAPSE_DIR
 from slowmo import SLOWMO_DIR, is_capturing
 from cleanup import DiskCleaner, disk_usage
@@ -110,7 +111,7 @@ _last_request_at = 0.0
 CLIENT_GRACE_SECS = 20.0
 # Endpoints that poll on a timer — they shouldn't count as "someone browsing"
 # or an idle open tab would suppress slow-mo forever.
-_ACTIVITY_EXCLUDE = {"/api/motion-status", "/api/slowmo-status"}
+_ACTIVITY_EXCLUDE = {"/api/motion-status", "/api/slowmo-status", "/api/thermal"}
 
 
 def clients_active():
@@ -131,8 +132,25 @@ def _stream_viewers(key):
         return _stream_counts.get(key, 0)
 
 
-_detector = MotionDetector(_camera, lambda: _settings, clients_active=clients_active)
-_timelapse = TimelapseCapturer(_camera, lambda: _settings)
+# Thermal siesta: pause capture/detection when the enclosure overheats in the
+# midday sun (SoC throttles ~80°C, Hailo NPU wedges under load), resume once it
+# cools. Created before the workers so they can gate on _thermal.is_siesta.
+def _on_siesta_change(active, temp_c):
+    if active:
+        msg = (f"PerchSentry napping — {temp_c}°C, too hot. Capture/detection "
+               f"paused until it cools.")
+    else:
+        msg = f"PerchSentry resuming — cooled to {temp_c}°C."
+    threading.Thread(
+        target=notify, args=("PerchSentry Thermal", None, _settings),
+        kwargs={"message": msg}, daemon=True,
+    ).start()
+
+
+_thermal = ThermalGovernor(lambda: _settings, on_change=_on_siesta_change)
+_detector = MotionDetector(_camera, lambda: _settings, clients_active=clients_active,
+                           siesta_active=_thermal.is_siesta)
+_timelapse = TimelapseCapturer(_camera, lambda: _settings, siesta_active=_thermal.is_siesta)
 _cleaner = DiskCleaner(lambda: _settings)
 _backup = BackupScheduler(lambda: _settings)
 _slowmo_verifier = SlowMoVerifier(lambda: _settings, clients_active=clients_active, set_maintenance=set_maintenance)
@@ -152,6 +170,7 @@ _backup.start()
 _slowmo_verifier.start()
 _capture_verifier.start()
 _temp_logger.start()
+_thermal.start()
 log.info("Camera ready — http://perchsentry.local:8080/")
 
 
@@ -804,6 +823,11 @@ def delete_slowmo(filename):
 @app.route("/api/slowmo-status")
 def slowmo_status():
     return jsonify({"capturing": is_capturing()})
+
+
+@app.route("/api/thermal")
+def thermal_status():
+    return jsonify(_thermal.status())
 
 
 @app.route("/api/motion-status")

@@ -129,12 +129,15 @@ class MotionDetector:
     more trustworthy signals than the species classifier's confidence.
     """
 
-    def __init__(self, camera, get_settings, clients_active=None):
+    def __init__(self, camera, get_settings, clients_active=None, siesta_active=None):
         self.camera = camera
         self.get_settings = get_settings
         # Returns True when someone is viewing the site; slow-mo is suppressed
         # then to avoid colliding with live-stream/gallery load.
         self._clients_active = clients_active or (lambda: False)
+        # Returns True during a thermal siesta — capture/detection pauses so the
+        # overheating unit can cool (and we stop hammering a heat-wedged NPU).
+        self._siesta_active = siesta_active or (lambda: False)
         self._thread = None
         self._stop_event = threading.Event()
         self._interp = load_interpreter()
@@ -288,6 +291,16 @@ class MotionDetector:
             poll_interval = max(0.05, float(s.get("detect_poll_interval", 0.2)))
             time.sleep(poll_interval)
             try:
+                # Thermal siesta: when the enclosure overheats we pause all
+                # capture/inference so the unit can cool (and we stop poking a
+                # heat-wedged NPU). Check first — skip the whole tick, touch
+                # neither camera nor NPU. Poll slowly; the governor drives the
+                # resume.
+                if self._siesta_active():
+                    self._set_status(last_event="thermal_pause")
+                    self._stop_event.wait(15)
+                    continue
+
                 # Watch NPU health: alert on the down/up transitions (detection
                 # fails closed while it's down) and attempt automatic PCIe
                 # recovery when it dies, so a dropped-out Hailo card self-heals

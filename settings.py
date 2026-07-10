@@ -24,6 +24,14 @@ DEFAULTS = {
     "backup_path": "",             # rsync destination, e.g. user@nas:/backups/birds
     "backup_interval": 0,          # hours between backups, 0 = disabled
     "recording_fan_mode": "normal",  # fan during slow-mo: normal | quiet | silent
+    # Thermal siesta: when the enclosure bakes in midday sun the SoC throttles
+    # (~80°C) and the Hailo NPU wedges under load. Pause capture/detection while
+    # hot and just serve a "napping" banner; resume once it cools. Hysteresis
+    # gap (siesta_c vs resume_c) prevents flapping. We don't see hummingbirds in
+    # the heat of the day anyway.
+    "thermal_siesta": True,        # enable the heat-of-the-day pause
+    "thermal_siesta_c": 80,        # enter siesta at/above this SoC temp (°C)
+    "thermal_resume_c": 68,        # resume once it cools back below this (°C)
     # Non-bird animals (cat/dog/bear/… — whatever the NPU object detector knows)
     # are kept as a separate "Animals" track so they don't dilute bird stats.
     "detector_model": "coco",     # "coco" (yolov8s, birds) or "megadetector"

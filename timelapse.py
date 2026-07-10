@@ -14,9 +14,12 @@ log = logging.getLogger("perchsentry")
 
 
 class TimelapseCapturer:
-    def __init__(self, camera, get_settings):
+    def __init__(self, camera, get_settings, siesta_active=None):
         self.camera = camera
         self.get_settings = get_settings
+        # Skip timelapse frames during a thermal siesta so we don't touch the
+        # camera (or add heat) while the unit is trying to cool.
+        self._siesta_active = siesta_active or (lambda: False)
         self._thread = None
         self._stop = threading.Event()
 
@@ -35,7 +38,7 @@ class TimelapseCapturer:
             interval_mins = s.get("timelapse_interval", 0)
             lat, lon = s.get("latitude"), s.get("longitude")
             is_day = is_daytime(lat, lon) if (lat is not None and lon is not None) else True
-            if interval_mins > 0 and is_day:
+            if interval_mins > 0 and is_day and not self._siesta_active():
                 now = time.time()
                 if now - last_capture >= interval_mins * 60:
                     ts = datetime.now().strftime("%Y%m%d_%H%M%S")

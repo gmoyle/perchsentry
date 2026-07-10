@@ -460,6 +460,38 @@
     z-index: 20;
   }
 
+  #siesta-banner {
+    display: none;
+    background: #b71c1c;
+    color: #fff;
+    text-align: center;
+    padding: 6px 12px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+    position: sticky;
+    top: 0;
+    z-index: 20;
+  }
+  #siesta-overlay {
+    display: none;
+    position: absolute;
+    inset: 0;
+    z-index: 18;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 24px;
+    background: linear-gradient(160deg, #5a2100, #141414 70%);
+    color: #fff;
+  }
+  #siesta-overlay.show { display: flex; }
+  .siesta-emoji { font-size: 3rem; margin-bottom: 12px; }
+  .siesta-title { font-size: 1.3rem; font-weight: 700; margin-bottom: 8px; }
+  .siesta-sub { max-width: 420px; font-size: 0.9rem; line-height: 1.45; opacity: 0.85; }
+  .siesta-temp { margin-top: 16px; font-size: 0.85rem; opacity: 0.7; }
+
   #motion-panel {
     display: none;
     position: absolute;
@@ -542,6 +574,7 @@
     </div>
   </header>
   <div id="slowmo-banner">📹 Capturing high-speed video…</div>
+  <div id="siesta-banner">🥵 Napping — heat of the day. Detection paused; back when it cools.</div>
 
   <div class="stream-pane">
     <div id="motion-panel">
@@ -550,6 +583,12 @@
       <div class="mp-row"><span>Last</span><span class="mp-event" id="mp-event">idle</span></div>
     </div>
     <img id="streamImg" alt="Live feed">
+    <div id="siesta-overlay">
+      <div class="siesta-emoji">🥵☀️</div>
+      <div class="siesta-title">Napping — heat of the day</div>
+      <div class="siesta-sub">It's too hot in the sun to run safely, so the camera and detection are paused. The feeder-cam wakes up on its own once it cools down — come back when it's cooler!</div>
+      <div class="siesta-temp" id="siesta-temp"></div>
+    </div>
   </div>
 
   <!-- Desktop controls toggle button -->
@@ -1097,14 +1136,20 @@
     document.getElementById('motion-panel').classList.add('show');
   }
 
-  // Pick stream resolution based on screen width, always fresh connection
+  // Pick stream resolution based on screen width, always fresh connection.
+  // Exposes pause/resume so the thermal siesta can drop the connection (letting
+  // the camera encode loop idle) while the unit is napping.
   const _si = document.getElementById('streamImg');
+  let _streamPaused = false;
+  const _streamUrl = () => (window.innerWidth <= 768 ? '/stream/mobile' : '/stream') + '?t=' + Date.now();
+  function _reconnectStream() { if (_si && !_streamPaused) _si.src = _streamUrl(); }
+  function pauseStream() { _streamPaused = true; if (_si) _si.removeAttribute('src'); }
+  function resumeStream() { if (!_streamPaused) return; _streamPaused = false; _reconnectStream(); }
   if (_si) {
-    const _streamUrl = () => (window.innerWidth <= 768 ? '/stream/mobile' : '/stream') + '?t=' + Date.now();
-    _si.src = _streamUrl();
-    _si.onerror = () => setTimeout(() => { _si.src = _streamUrl(); }, 2000);
+    _reconnectStream();
+    _si.onerror = () => setTimeout(_reconnectStream, 2000);
     document.addEventListener('visibilitychange', () => {
-      if (!document.hidden) _si.src = _streamUrl();
+      if (!document.hidden) _reconnectStream();
     });
   }
 
@@ -1118,6 +1163,32 @@
     }, 1000);
   })();
 
+  // Thermal siesta banner + overlay. When the unit is too hot it pauses
+  // capture/detection; show the "napping" message and drop the live stream so
+  // the camera encode loop can idle and help it cool.
+  (function() {
+    const banner = document.getElementById('siesta-banner');
+    const overlay = document.getElementById('siesta-overlay');
+    const tempEl = document.getElementById('siesta-temp');
+    function poll() {
+      fetch('/api/thermal').then(r => r.json()).then(d => {
+        const napping = !!d.active;
+        banner.style.display = napping ? 'block' : 'none';
+        overlay.classList.toggle('show', napping);
+        if (napping) {
+          const t = d.temp_c != null ? `${d.temp_c}°C` : '';
+          const resume = d.resume_c != null ? ` — waking below ${d.resume_c}°C` : '';
+          tempEl.textContent = t ? `Currently ${t}${resume}` : '';
+          pauseStream();
+        } else {
+          resumeStream();
+        }
+      }).catch(() => {});
+    }
+    poll();
+    setInterval(poll, 15000);
+  })();
+
   // Live NPU presence-detection feedback panel. Detection is continuous —
   // there's no motion threshold to tune; "an animal is in frame" IS the
   // trigger, so this just shows what the NPU is currently seeing.
@@ -1127,7 +1198,7 @@
     const eventEl = document.getElementById('mp-event');
 
     const IDLE_EVENTS = new Set(['watching', 'idle', 'warming_up', 'night_pause',
-                                  'slowmo_capturing', 'no_frame']);
+                                  'slowmo_capturing', 'no_frame', 'thermal_pause']);
 
     const EVENT_LABELS = {
       idle: 'idle',
@@ -1135,6 +1206,7 @@
       presence: 'animal in frame…',
       warming_up: 'warming up',
       night_pause: 'night — detection paused',
+      thermal_pause: 'too hot — napping',
       slowmo_capturing: 'recording slow-mo',
       no_frame: 'no camera frame',
       duplicate: 'duplicate frame skipped',
