@@ -28,6 +28,15 @@ STARTUP_GRACE_SECS = 3.0
 # so a permanently-dead card doesn't reset the bus in a tight loop.
 HAILO_RECOVER_CMD = ["sudo", "-n", "/usr/local/sbin/hailo_recover.sh"]
 HAILO_RECOVER_COOLDOWN_SECS = 300
+# Auto-recovery is DISABLED: the recovery script does a PCIe remove +
+# secondary-bus-reset + rescan, but running it while this process still holds
+# /dev/hailo0 open drives the hailo_pci driver's release path
+# (fops_release → nnc_driver_down → write_firmware_driver_shutdown) into a
+# kernel oops against the just-reset device. After that every ioctl returns
+# ENODEV and the backend re-init deadlocks the gunicorn worker, taking the whole
+# site down. Until the card can be reset with the service stopped (no open fd),
+# a dead NPU must simply fail closed and keep the web UI + camera serving.
+HAILO_AUTO_RECOVER = False
 
 log = logging.getLogger("perchsentry")
 
@@ -251,15 +260,15 @@ class MotionDetector:
         """Detect NPU down/up transitions: alert on each, and on going down try
         automatic PCIe recovery. Returns the current dead state to carry over."""
         dead = self._npu_dead()
-        if dead and not was_dead:
+        if dead and not was_dead and HAILO_AUTO_RECOVER:
             recovered = self._try_npu_recover()
             if recovered:
                 dead = self._npu_dead()  # may already be healthy again
         if dead != was_dead:
             if dead:
-                msg = ("Hailo NPU is DOWN — detection paused, auto-recovery "
-                       "attempted. Power-cycle may be needed if it keeps "
-                       "recurring.")
+                msg = ("Hailo NPU is DOWN — detection paused (failing closed). "
+                       "Card reset needs the service stopped; a reboot will "
+                       "clear it.")
                 log.warning(msg)
             else:
                 msg = "Hailo NPU recovered — detection resumed."
