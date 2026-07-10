@@ -214,6 +214,30 @@ def post_settings():
     return jsonify({"ok": True})
 
 
+# Image-tuning keys that "Reset to defaults" restores. Deliberately excludes
+# focus (a physical adjustment for the feeder distance — resetting it would
+# blur the shot) and detection/motion knobs.
+CAMERA_IMAGE_KEYS = ["brightness", "contrast", "saturation", "sharpness"]
+
+
+@app.route("/camera/reset", methods=["POST"])
+def reset_camera_image():
+    global _settings
+    for k in CAMERA_IMAGE_KEYS:
+        _settings[k] = cfg.DEFAULTS[k]
+    cfg.save(_settings)
+    _camera.apply_settings(_settings)
+    log.info("Camera image settings reset to defaults")
+    return jsonify({"ok": True, "settings": {k: _settings[k] for k in CAMERA_IMAGE_KEYS}})
+
+
+@app.route("/camera/awb", methods=["POST"])
+def trigger_awb():
+    ok = _camera.reset_white_balance()
+    log.info(f"Auto white-balance re-triggered (applied={ok})")
+    return jsonify({"ok": ok})
+
+
 CAPTURES_DIR = Path(__file__).parent / "captures"
 LOG_FILE = Path(__file__).parent / "logs" / "perchsentry.log"
 BIRD_RE = re.compile(r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}).*BIRD DETECTED: (.+?) \((\d+\.\d+)%\) → (motion_\S+\.jpg)")

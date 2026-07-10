@@ -593,6 +593,13 @@
         <div class="label-row"><label for="sharpness">Sharpness</label><span class="val" id="val_sharpness"></span></div>
         <input type="range" id="sharpness" min="0.0" max="8.0" step="0.1">
       </div>
+      <div class="control" style="min-width:150px">
+        <div class="label-row"><label>Quick actions</label></div>
+        <div style="display:flex;gap:6px;margin-top:4px">
+          <button class="focus-mode-btn" onclick="triggerAwb()" title="Re-run auto white-balance to re-derive the scene's colour after a lighting change">Auto white</button>
+          <button class="focus-mode-btn" onclick="resetCamera()" title="Reset brightness, contrast, saturation and sharpness to their defaults">Reset defaults</button>
+        </div>
+      </div>
     </div>
 
     <div class="divider"></div>
@@ -722,6 +729,12 @@
           <div class="sheet-control">
             <div class="label-row"><span>Sharpness</span><span class="val" id="mval_sharpness"></span></div>
             <input type="range" id="m_sharpness" min="0.0" max="8.0" step="0.1">
+          </div>
+          <div class="sheet-control">
+            <div class="focus-btns">
+              <button class="focus-mode-btn" onclick="triggerAwb()">Auto white</button>
+              <button class="focus-mode-btn" onclick="resetCamera()">Reset defaults</button>
+            </div>
           </div>
         </div>
       </div>
@@ -1022,11 +1035,49 @@
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
-      }).then(r => r.json()).then(() => {
-        const t = document.getElementById('toast');
-        t.classList.add('show');
-        setTimeout(() => t.classList.remove('show'), 2000);
-      });
+      }).then(r => r.json()).then(() => flashToast());
+    }
+
+    // Briefly show a toast; restores the default "Settings applied" label after.
+    function flashToast(msg) {
+      const t = document.getElementById('toast');
+      if (msg) t.textContent = msg;
+      t.classList.add('show');
+      setTimeout(() => {
+        t.classList.remove('show');
+        if (msg) setTimeout(() => { t.textContent = 'Settings applied'; }, 300);
+      }, 2000);
+    }
+
+    // Push a value into both the desktop and mobile slider (and their readouts)
+    // without re-binding listeners — used after a server-side reset.
+    function setSliderValue(key, val) {
+      settings[key] = val;
+      const row = SLIDERS.find(s => s[0] === key);
+      if (!row) return;
+      const [, dId, mId, dValId, mValId] = row;
+      [dId, mId].forEach(id => { const el = document.getElementById(id); if (el) el.value = val; });
+      [dValId, mValId].forEach(id => { const el = document.getElementById(id); if (el) el.textContent = val; });
+    }
+
+    // Re-trigger the camera's auto white-balance (colour only, no saved setting).
+    function triggerAwb() {
+      fetch('/camera/awb', { method: 'POST' })
+        .then(r => r.json())
+        .then(d => flashToast(d.ok ? 'Auto white-balance triggered' : 'White balance not supported'))
+        .catch(() => flashToast('White balance failed'));
+    }
+
+    // Reset the image-tuning sliders (brightness/contrast/saturation/sharpness)
+    // to their defaults; the server persists and applies them.
+    function resetCamera() {
+      fetch('/camera/reset', { method: 'POST' })
+        .then(r => r.json())
+        .then(d => {
+          Object.entries(d.settings || {}).forEach(([k, v]) => setSliderValue(k, v));
+          flashToast('Camera reset to defaults');
+        })
+        .catch(() => flashToast('Reset failed'));
     }
 
   // Controls panel toggle

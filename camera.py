@@ -192,6 +192,26 @@ class Camera:
             return np.zeros((240, 320), dtype=np.int16)
         return arr[:240, :320].astype(np.int16)
 
+    def reset_white_balance(self):
+        """Kick the auto white-balance algorithm back into gear so it re-derives
+        the scene's white point. AWB runs continuously by default, but after a
+        big lighting shift (dusk, a cloud, the porch light coming on) its gains
+        can settle on a colour cast; re-enabling auto AWB forces a fresh
+        convergence. Returns True if the camera accepted the nudge."""
+        if not self.available:
+            return False
+        with self.cam_lock:
+            cam_controls = self.cam.camera_controls
+            controls = {}
+            if "AwbEnable" in cam_controls:
+                controls["AwbEnable"] = 1
+            if "AwbMode" in cam_controls:
+                controls["AwbMode"] = 0  # 0 = auto
+            if not controls:
+                return False
+            self.cam.set_controls(controls)
+        return True
+
     def apply_settings(self, s):
         if not self.available:
             return
